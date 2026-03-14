@@ -1,12 +1,12 @@
 ﻿using UnityEngine;
-using UnityEngine.UI;
 using TMPro;
+using UnityEngine.UI;
 
 public class TimeUI : MonoBehaviour
 {
     [Header("UI References")]
     public TextMeshProUGUI timeText;
-    public Slider speedSlider;
+    public TextMeshProUGUI dayText;
     public TextMeshProUGUI speedText;
 
     [Header("Speed Buttons")]
@@ -18,33 +18,40 @@ public class TimeUI : MonoBehaviour
 
     void Start()
     {
-        speedSlider.minValue = 0f;
-        speedSlider.maxValue = 100f;
-        speedSlider.value = 1f;
-
-        speedSlider.onValueChanged.AddListener(OnSliderChanged);
-
-        pauseButton.onClick.AddListener(() => SetSpeed(0f));
-        speed1xButton.onClick.AddListener(() => SetSpeed(1f));
-        speed2xButton.onClick.AddListener(() => SetSpeed(2f));
-        speed10xButton.onClick.AddListener(() => SetSpeed(10f));
-        speed100xButton.onClick.AddListener(() => SetSpeed(100f));
+        pauseButton?.onClick.AddListener(() => SetSpeed(0f));
+        speed1xButton?.onClick.AddListener(() => SetSpeed(1f));
+        speed2xButton?.onClick.AddListener(() => SetSpeed(2f));
+        speed10xButton?.onClick.AddListener(() => SetSpeed(10f));
+        speed100xButton?.onClick.AddListener(() => SetSpeed(100f));
     }
 
     void Update()
     {
-        timeText.text = TimeManager.Instance.GetFormattedTime();
-        speedText.text = $"Speed: {TimeManager.Instance.timeMultiplier}x";
+        if (TimeManager.Instance == null) return;
+
+        if (timeText != null)
+            timeText.text = TimeManager.Instance.GetFormattedTime();
+
+        if (dayText != null)
+            dayText.text = $"Day {TimeManager.Instance.currentDay + 1} — {TimeManager.Instance.GetDayName()}";
+
+        if (speedText != null)
+        {
+            float multiplier = TimeManager.Instance.timeMultiplier;
+            float simMinPerRealSec = TimeManager.Instance.simMinutesPerRealSecond * multiplier;
+
+            if (multiplier == 0f)
+                speedText.text = "Paused";
+            else if (simMinPerRealSec < 60f)
+                speedText.text = $"{simMinPerRealSec:0} sim min/sec";
+            else
+                speedText.text = $"{simMinPerRealSec / 60f:0.#} sim hr/sec";
+        }
     }
 
-    void OnSliderChanged(float value)
+    void SetSpeed(float multiplier)
     {
-        SetSpeed(value);
-    }
-
-    void SetSpeed(float speed)
-    {
-        TimeManager.Instance.SetTimeMultiplier(speed);
-        speedSlider.value = speed;
+        if (TimeManager.Instance != null)
+            TimeManager.Instance.SetTimeMultiplier(multiplier);
     }
 }

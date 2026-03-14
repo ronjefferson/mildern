@@ -22,6 +22,12 @@ public class TimeManager : MonoBehaviour
     public int currentDay = 0;
     public string[] dayNames = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" };
 
+    // How many sim minutes pass per real second at 1x
+    // 1 = 1 real second → 1 sim minute
+    // 10 = 1 real second → 10 sim minutes
+    [Header("Base Time Ratio")]
+    public float simMinutesPerRealSecond = 10f;
+
     public static TimeManager Instance;
 
     void Awake()
@@ -40,10 +46,8 @@ public class TimeManager : MonoBehaviour
         if (timeMultiplier == 0) return;
 
         // simDelta is real seconds * multiplier
-        // divide by 3600 to convert to hours
-        // at 1x: 1 real second = 1 simulated minute
-        // so 60 real seconds = 1 simulated hour
-        currentHour += simDelta / 3600f;
+        // convert to hours using base ratio
+        currentHour += (simDelta * simMinutesPerRealSecond) / 60f;
 
         if (currentHour >= 24f)
         {

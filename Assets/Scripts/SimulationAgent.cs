@@ -21,9 +21,14 @@ public enum AgentScheduleState
 
 public struct SimulationAgent
 {
+    // Time-parameterized movement
+    public float3 moveStartPosition;
+    public float3 moveEndPosition;
+    public float moveStartTime;
+    public float arrivalTime;
+
+    // Logical position (used for schedule/epidemic checks)
     public float3 position;
-    public float3 previousPosition;
-    public float3 velocity;
     public float3 targetPosition;
 
     public HealthState healthState;
@@ -46,4 +51,5 @@ public struct SimulationAgent
     public bool isWeekendWorker;
     public bool isActive;
     public bool isInsideBuilding;
+    public bool hasMovementSegment;
 }

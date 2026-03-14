@@ -54,6 +54,13 @@ public class SimulationManager : MonoBehaviour
 
     private const float groundY = 0f;
 
+    // Single sim time drives everything
+    private float simTime = 0f;
+
+    // Epidemic runs on its own fixed ticks
+    private float epicAccumulator = 0f;
+    private const float epicTickInterval = 1f;
+
     void Awake()
     {
         Instance = this;
@@ -126,6 +133,9 @@ public class SimulationManager : MonoBehaviour
         agents = new NativeArray<SimulationAgent>(populationSize, Allocator.Persistent);
         agentsBuffer = new NativeArray<SimulationAgent>(populationSize, Allocator.Persistent);
 
+        // Sync simTime to TimeManager starting hour
+        simTime = (TimeManager.Instance != null ? TimeManager.Instance.currentHour : 8f) * 3600f;
+
         for (int i = 0; i < populationSize; i++)
         {
             int homeIdx = i % homePositions.Length;
@@ -133,19 +143,38 @@ public class SimulationManager : MonoBehaviour
             int commercialIdx = i % commercialPositions.Length;
             int startWaypoint = Random.Range(0, waypoints.Length);
             float3 homePos = homePositions[homeIdx];
-            float3 spawnPos = new float3(homePos.x + Random.Range(-10f, 10f), groundY, homePos.z + Random.Range(-10f, 10f));
+            float3 spawnPos = new float3(
+                homePos.x + Random.Range(-10f, 10f),
+                groundY,
+                homePos.z + Random.Range(-10f, 10f)
+            );
+            float3 firstTarget = waypoints[startWaypoint];
+            firstTarget.y = groundY;
+
+            float3 initDir = firstTarget - spawnPos;
+            initDir.y = 0f;
+            float initDist = math.length(initDir);
+            float initSpeed = Random.Range(3f, 6f);
+            float segLen = math.min(initDist, initSpeed * 10f);
+            float3 segEnd = initDist > 0.01f
+                ? spawnPos + math.normalize(initDir) * segLen
+                : firstTarget;
+            segEnd.y = groundY;
+            float initTravelTime = initDist > 0.01f ? segLen / initSpeed : 1f;
 
             agents[i] = new SimulationAgent
             {
                 position = spawnPos,
-                previousPosition = spawnPos,
-                velocity = float3.zero,
-                targetPosition = waypoints[startWaypoint],
+                moveStartPosition = spawnPos,
+                moveEndPosition = segEnd,
+                moveStartTime = simTime,
+                arrivalTime = simTime + initTravelTime,
+                targetPosition = firstTarget,
                 healthState = i < initialInfected ? HealthState.Infected : HealthState.Susceptible,
-                scheduleState = AgentScheduleState.Home,
+                scheduleState = AgentScheduleState.Commuting,
                 infectionTimer = 0f,
                 recoveryTimer = 0f,
-                speed = Random.Range(3f, 6f),
+                speed = initSpeed,
                 homeID = homeIdx,
                 workID = workIdx,
                 commercialID = commercialIdx,
@@ -156,7 +185,8 @@ public class SimulationManager : MonoBehaviour
                 complianceLevel = Random.Range(0f, 1f),
                 isWeekendWorker = Random.value < 0.2f,
                 isActive = true,
-                isInsideBuilding = true
+                isInsideBuilding = false,
+                hasMovementSegment = true
             };
         }
 
@@ -169,67 +199,78 @@ public class SimulationManager : MonoBehaviour
         if (!initialized) return;
 
         float multiplier = TimeManager.Instance != null ? TimeManager.Instance.timeMultiplier : 1f;
-        if (multiplier == 0) return;
+        if (multiplier == 0f) return;
 
         float simDelta = Time.deltaTime * multiplier;
+        simTime += simDelta;
+
+        // Advance clock
+        if (TimeManager.Instance != null)
+            TimeManager.Instance.AdvanceTime(simDelta);
 
         float currentHour = TimeManager.Instance != null ? TimeManager.Instance.currentHour : 8f;
         bool isWeekend = TimeManager.Instance != null && TimeManager.Instance.IsWeekend();
 
-        if (TimeManager.Instance != null)
-            TimeManager.Instance.AdvanceTime(simDelta);
-
-        currentHour = TimeManager.Instance != null ? TimeManager.Instance.currentHour : 8f;
-        isWeekend = TimeManager.Instance != null && TimeManager.Instance.IsWeekend();
-
+        // Schedules - runs once per frame, cheap
         UpdateSchedules(currentHour, isWeekend);
 
-        MovementJob movementJob = new MovementJob
+        // Waypoint assignment - only does work when agent arrives at segment end
+        // This is O(1) per agent per frame most of the time
+        WaypointAssignJob waypointJob = new WaypointAssignJob
         {
             agents = agents,
             waypoints = waypoints,
             buildingCenters = buildingCenters,
             buildingSizes = buildingSizes,
-            stepSize = simDelta,
+            currentSimTime = simTime,
             waypointReachDistance = waypointReachDistance
         };
-        JobHandle movementHandle = movementJob.Schedule(agents.Length, 64);
+        JobHandle waypointHandle = waypointJob.Schedule(agents.Length, 64);
+        waypointHandle.Complete();
 
-        spatialGrid.grid.Clear();
-        UpdateGridJob gridJob = new UpdateGridJob
+        // Epidemic on fixed sim-time ticks
+        epicAccumulator += simDelta;
+        while (epicAccumulator >= epicTickInterval)
         {
-            agents = agents,
-            gridWriter = spatialGrid.grid.AsParallelWriter(),
-            cellSize = spatialGrid.cellSize,
-            gridOrigin = spatialGrid.gridOrigin,
-            gridWidth = spatialGrid.gridWidth,
-            gridHeight = spatialGrid.gridHeight
-        };
-        JobHandle gridHandle = gridJob.Schedule(agents.Length, 64, movementHandle);
+            epicAccumulator -= epicTickInterval;
 
-        EpidemicJob epidemicJob = new EpidemicJob
-        {
-            agentsIn = agents,
-            agentsOut = agentsBuffer,
-            grid = spatialGrid.grid,
-            deltaTime = simDelta,
-            timeMultiplier = 1f,
-            infectionRadius = infectionRadius,
-            transmissionRate = transmissionRate,
-            recoveryTime = recoveryTime,
-            mortalityRate = mortalityRate,
-            cellSize = spatialGrid.cellSize,
-            gridOrigin = spatialGrid.gridOrigin,
-            gridWidth = spatialGrid.gridWidth,
-            gridHeight = spatialGrid.gridHeight
-        };
-        JobHandle epidemicHandle = epidemicJob.Schedule(agents.Length, 64, gridHandle);
-        epidemicHandle.Complete();
+            spatialGrid.grid.Clear();
+            UpdateGridJob gridJob = new UpdateGridJob
+            {
+                agents = agents,
+                gridWriter = spatialGrid.grid.AsParallelWriter(),
+                cellSize = spatialGrid.cellSize,
+                gridOrigin = spatialGrid.gridOrigin,
+                gridWidth = spatialGrid.gridWidth,
+                gridHeight = spatialGrid.gridHeight
+            };
+            JobHandle gridHandle = gridJob.Schedule(agents.Length, 64);
 
-        agentsBuffer.CopyTo(agents);
+            EpidemicJob epidemicJob = new EpidemicJob
+            {
+                agentsIn = agents,
+                agentsOut = agentsBuffer,
+                grid = spatialGrid.grid,
+                deltaTime = epicTickInterval,
+                timeMultiplier = 1f,
+                infectionRadius = infectionRadius,
+                transmissionRate = transmissionRate,
+                recoveryTime = recoveryTime,
+                mortalityRate = mortalityRate,
+                cellSize = spatialGrid.cellSize,
+                gridOrigin = spatialGrid.gridOrigin,
+                gridWidth = spatialGrid.gridWidth,
+                gridHeight = spatialGrid.gridHeight
+            };
+            JobHandle epidemicHandle = epidemicJob.Schedule(agents.Length, 64, gridHandle);
+            epidemicHandle.Complete();
 
+            agentsBuffer.CopyTo(agents);
+        }
+
+        // Render once per frame - position derived from simTime
         if (AgentRenderer.Instance != null)
-            AgentRenderer.Instance.UpdateRender(agents, 1f, agentGroundOffset);
+            AgentRenderer.Instance.UpdateRender(agents, simTime, agentGroundOffset);
     }
 
     void UpdateSchedules(float currentHour, bool isWeekend)
@@ -247,7 +288,9 @@ public class SimulationManager : MonoBehaviour
                     {
                         agent.scheduleState = AgentScheduleState.Commuting;
                         agent.targetPosition = waypoints[workNearestWaypoint[agent.workID]];
+                        agent.targetPosition.y = groundY;
                         agent.isInsideBuilding = false;
+                        AssignMovementSegment(ref agent);
                     }
                     break;
 
@@ -260,6 +303,7 @@ public class SimulationManager : MonoBehaviour
                     {
                         agent.scheduleState = AgentScheduleState.AtWork;
                         agent.isInsideBuilding = true;
+                        agent.hasMovementSegment = false;
                     }
                     else
                     {
@@ -268,7 +312,10 @@ public class SimulationManager : MonoBehaviour
                             new float3(agent.targetPosition.x, 0f, agent.targetPosition.z)
                         );
                         if (distToWaypoint < waypointReachDistance)
+                        {
                             agent.targetPosition = waypoints[workNearestWaypoint[agent.workID]];
+                            agent.targetPosition.y = groundY;
+                        }
                     }
                     break;
 
@@ -277,7 +324,9 @@ public class SimulationManager : MonoBehaviour
                     {
                         agent.scheduleState = AgentScheduleState.Returning;
                         agent.targetPosition = waypoints[homeNearestWaypoint[agent.homeID]];
+                        agent.targetPosition.y = groundY;
                         agent.isInsideBuilding = false;
+                        AssignMovementSegment(ref agent);
                     }
                     break;
 
@@ -290,8 +339,8 @@ public class SimulationManager : MonoBehaviour
                     {
                         agent.scheduleState = AgentScheduleState.Home;
                         agent.isInsideBuilding = true;
+                        agent.hasMovementSegment = false;
                         agent.position = new float3(homePositions[agent.homeID].x, groundY, homePositions[agent.homeID].z);
-                        agent.previousPosition = agent.position;
                     }
                     else
                     {
@@ -300,7 +349,10 @@ public class SimulationManager : MonoBehaviour
                             new float3(agent.targetPosition.x, 0f, agent.targetPosition.z)
                         );
                         if (distToWaypoint < waypointReachDistance)
+                        {
                             agent.targetPosition = waypoints[homeNearestWaypoint[agent.homeID]];
+                            agent.targetPosition.y = groundY;
+                        }
                     }
                     break;
 
@@ -309,13 +361,35 @@ public class SimulationManager : MonoBehaviour
                     {
                         agent.scheduleState = AgentScheduleState.Returning;
                         agent.targetPosition = waypoints[homeNearestWaypoint[agent.homeID]];
+                        agent.targetPosition.y = groundY;
                         agent.isInsideBuilding = false;
+                        AssignMovementSegment(ref agent);
                     }
                     break;
             }
 
             agents[i] = agent;
         }
+    }
+
+    void AssignMovementSegment(ref SimulationAgent agent)
+    {
+        float3 direction = agent.targetPosition - agent.position;
+        direction.y = 0f;
+        float distance = math.length(direction);
+        if (distance < 0.01f) return;
+
+        float segmentLength = math.min(distance, agent.speed * 10f);
+        float3 segEnd = agent.position + math.normalize(direction) * segmentLength;
+        segEnd.y = groundY;
+
+        float travelTime = segmentLength / agent.speed;
+
+        agent.moveStartPosition = agent.position;
+        agent.moveEndPosition = segEnd;
+        agent.moveStartTime = simTime;
+        agent.arrivalTime = simTime + travelTime;
+        agent.hasMovementSegment = true;
     }
 
     int FindNearestWaypointIndex(float3 target)
@@ -345,4 +419,5 @@ public class SimulationManager : MonoBehaviour
 
     public NativeArray<SimulationAgent> GetAgents() => agents;
     public bool IsInitialized() => initialized;
+    public float GetSimTime() => simTime;
 }

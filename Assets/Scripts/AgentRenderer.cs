@@ -22,7 +22,7 @@ public class AgentRenderer : MonoBehaviour
         Instance = this;
     }
 
-    public void UpdateRender(NativeArray<SimulationAgent> agents, float interpolation, float groundOffset = 0f)
+    public void UpdateRender(NativeArray<SimulationAgent> agents, float currentSimTime, float groundOffset = 0f)
     {
         List<Matrix4x4> susceptible = new List<Matrix4x4>();
         List<Matrix4x4> infected = new List<Matrix4x4>();
@@ -34,7 +34,28 @@ public class AgentRenderer : MonoBehaviour
             SimulationAgent agent = agents[i];
             if (!agent.isActive || agent.isInsideBuilding) continue;
 
-            float3 renderPos = math.lerp(agent.previousPosition, agent.position, interpolation);
+            // Derive render position purely from sim time - no stored position needed
+            float3 renderPos;
+            if (agent.hasMovementSegment)
+            {
+                float duration = agent.arrivalTime - agent.moveStartTime;
+                if (duration > 0.0001f)
+                {
+                    float progress = math.clamp(
+                        (currentSimTime - agent.moveStartTime) / duration,
+                        0f, 1f
+                    );
+                    renderPos = math.lerp(agent.moveStartPosition, agent.moveEndPosition, progress);
+                }
+                else
+                {
+                    renderPos = agent.moveEndPosition;
+                }
+            }
+            else
+            {
+                renderPos = agent.position;
+            }
 
             Matrix4x4 matrix = Matrix4x4.TRS(
                 new Vector3(renderPos.x, renderPos.y + groundOffset, renderPos.z),
