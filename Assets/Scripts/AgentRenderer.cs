@@ -17,12 +17,9 @@ public class AgentRenderer : MonoBehaviour
 
     private const int batchSize = 1023;
 
-    void Awake()
-    {
-        Instance = this;
-    }
+    void Awake() { Instance = this; }
 
-    public void UpdateRender(NativeArray<SimulationAgent> agents, float currentSimTime, float groundOffset = 0f)
+    public void UpdateRender(NativeArray<SimulationAgent> agents, float renderTime, float groundOffset = 0f)
     {
         List<Matrix4x4> susceptible = new List<Matrix4x4>();
         List<Matrix4x4> infected = new List<Matrix4x4>();
@@ -34,15 +31,16 @@ public class AgentRenderer : MonoBehaviour
             SimulationAgent agent = agents[i];
             if (!agent.isActive || agent.isInsideBuilding) continue;
 
-            // Derive render position purely from sim time - no stored position needed
             float3 renderPos;
+
             if (agent.hasMovementSegment)
             {
                 float duration = agent.arrivalTime - agent.moveStartTime;
                 if (duration > 0.0001f)
                 {
+                    // Always clamp 0-1 regardless of renderTime vs simTime relationship
                     float progress = math.clamp(
-                        (currentSimTime - agent.moveStartTime) / duration,
+                        (renderTime - agent.moveStartTime) / duration,
                         0f, 1f
                     );
                     renderPos = math.lerp(agent.moveStartPosition, agent.moveEndPosition, progress);
@@ -81,7 +79,6 @@ public class AgentRenderer : MonoBehaviour
     void DrawBatched(List<Matrix4x4> matrices, Material material)
     {
         if (material == null || agentMesh == null) return;
-
         for (int i = 0; i < matrices.Count; i += batchSize)
         {
             int count = Mathf.Min(batchSize, matrices.Count - i);

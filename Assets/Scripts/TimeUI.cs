@@ -7,6 +7,7 @@ public class TimeUI : MonoBehaviour
     [Header("UI References")]
     public TextMeshProUGUI timeText;
     public TextMeshProUGUI dayText;
+    public TextMeshProUGUI dayCounterText;
     public TextMeshProUGUI speedText;
 
     [Header("Speed Buttons")]
@@ -16,6 +17,9 @@ public class TimeUI : MonoBehaviour
     public Button speed10xButton;
     public Button speed100xButton;
 
+    private int totalDays = 0;
+    private int lastDay = 0;
+
     void Start()
     {
         pauseButton?.onClick.AddListener(() => SetSpeed(0f));
@@ -23,17 +27,31 @@ public class TimeUI : MonoBehaviour
         speed2xButton?.onClick.AddListener(() => SetSpeed(2f));
         speed10xButton?.onClick.AddListener(() => SetSpeed(10f));
         speed100xButton?.onClick.AddListener(() => SetSpeed(100f));
+
+        if (TimeManager.Instance != null)
+            lastDay = TimeManager.Instance.currentDay;
     }
 
     void Update()
     {
         if (TimeManager.Instance == null) return;
 
+        // Track total days elapsed
+        int currentDay = TimeManager.Instance.currentDay;
+        if (currentDay != lastDay)
+        {
+            totalDays++;
+            lastDay = currentDay;
+        }
+
         if (timeText != null)
             timeText.text = TimeManager.Instance.GetFormattedTime();
 
         if (dayText != null)
-            dayText.text = $"Day {TimeManager.Instance.currentDay + 1} — {TimeManager.Instance.GetDayName()}";
+            dayText.text = $"{TimeManager.Instance.GetDayName()}";
+
+        if (dayCounterText != null)
+            dayCounterText.text = $"Day {totalDays + 1}";
 
         if (speedText != null)
         {

@@ -4,4 +4,7 @@
 public class WaypointData : ScriptableObject
 {
     public Vector3[] waypoints;
+    public int[] neighborData;
+    public int[] neighborStart;
+    public int[] neighborCount;
 }

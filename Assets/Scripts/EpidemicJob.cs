@@ -12,6 +12,10 @@ public struct EpidemicJob : IJobParallelFor
 
     public float deltaTime;
     public float timeMultiplier;
+    
+    // Time injection to make the RNG dynamic over time
+    public float currentSimTime; 
+    
     public float infectionRadius;
     public float transmissionRate;
     public float recoveryTime;
@@ -37,7 +41,10 @@ public struct EpidemicJob : IJobParallelFor
 
             if (agent.recoveryTimer >= recoveryTime)
             {
-                if (Unity.Mathematics.Random.CreateFromIndex((uint)i).NextFloat() < mortalityRate)
+                // RNG Seed includes simulation time to prevent deterministic loops
+                var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(i * 7919 + (uint)(currentSimTime * 1000f)));
+                
+                if (rng.NextFloat() < mortalityRate)
                     agent.healthState = HealthState.Dead;
                 else
                     agent.healthState = HealthState.Recovered;
@@ -77,7 +84,13 @@ public struct EpidemicJob : IJobParallelFor
                             if (dist < infectionRadius)
                             {
                                 float chance = transmissionRate * (1f - agent.complianceLevel) * deltaTime * timeMultiplier;
-                                if (Unity.Mathematics.Random.CreateFromIndex((uint)(i + neighborIdx)).NextFloat() < chance)
+                                
+                                // RNG Seed includes simulation time for daily exposure checks
+                                var rng = Unity.Mathematics.Random.CreateFromIndex(
+                                    (uint)(i * 73856 + neighborIdx * 19274 + (uint)(currentSimTime * 1000f))
+                                );
+                                
+                                if (rng.NextFloat() < chance)
                                 {
                                     agent.healthState = HealthState.Infected;
                                     agent.infectionTimer = 0f;

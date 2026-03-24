@@ -20,20 +20,16 @@ public class TimeManager : MonoBehaviour
 
     [Header("Day Tracking")]
     public int currentDay = 0;
-    public string[] dayNames = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" };
+    public string[] dayNames = { "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday", "Sunday" };
 
-    // How many sim minutes pass per real second at 1x
-    // 1 = 1 real second → 1 sim minute
-    // 10 = 1 real second → 10 sim minutes
     [Header("Base Time Ratio")]
+    [Tooltip("Sim minutes per real second at 1x speed. 10 = 10 sim min per real sec")]
     public float simMinutesPerRealSecond = 10f;
 
     public static TimeManager Instance;
 
-    void Awake()
-    {
-        Instance = this;
-    }
+    void Awake() { Instance = this; }
 
     void Update()
     {
@@ -41,13 +37,14 @@ public class TimeManager : MonoBehaviour
         UpdateAmbientLight();
     }
 
-    public void AdvanceTime(float simDelta)
+    // Call with Time.deltaTime every frame
+    // multiplier is applied here so time scales correctly
+    public void AdvanceTime(float realDeltaSeconds)
     {
-        if (timeMultiplier == 0) return;
+        if (timeMultiplier == 0f) return;
 
-        // simDelta is real seconds * multiplier
-        // convert to hours using base ratio
-        currentHour += (simDelta * simMinutesPerRealSecond) / 60f;
+        // Apply multiplier here — this is the only place time advances
+        currentHour += (realDeltaSeconds * timeMultiplier * simMinutesPerRealSecond) / 60f;
 
         if (currentHour >= 24f)
         {
@@ -65,7 +62,8 @@ public class TimeManager : MonoBehaviour
         if (currentHour >= 6f && currentHour <= 18f)
         {
             float t = Mathf.InverseLerp(6f, 18f, currentHour);
-            sun.intensity = Mathf.Lerp(minSunIntensity, maxSunIntensity, Mathf.Sin(t * Mathf.PI));
+            sun.intensity = Mathf.Lerp(minSunIntensity, maxSunIntensity,
+                Mathf.Sin(t * Mathf.PI));
         }
         else
         {
@@ -78,7 +76,8 @@ public class TimeManager : MonoBehaviour
         if (currentHour >= 6f && currentHour <= 18f)
         {
             float t = Mathf.InverseLerp(6f, 18f, currentHour);
-            RenderSettings.ambientLight = Color.Lerp(nightAmbientLight, dayAmbientLight, Mathf.Sin(t * Mathf.PI));
+            RenderSettings.ambientLight = Color.Lerp(nightAmbientLight, dayAmbientLight,
+                Mathf.Sin(t * Mathf.PI));
         }
         else
         {
@@ -93,10 +92,7 @@ public class TimeManager : MonoBehaviour
     {
         int hours = Mathf.FloorToInt(currentHour);
         int minutes = Mathf.FloorToInt((currentHour - hours) * 60f);
-        string period = hours >= 12 ? "PM" : "AM";
-        int displayHour = hours % 12;
-        if (displayHour == 0) displayHour = 12;
-        return $"{displayHour:00}:{minutes:00} {period}";
+        return $"{hours:00}:{minutes:00}";
     }
 
     public void SetTimeMultiplier(float multiplier) => timeMultiplier = multiplier;
