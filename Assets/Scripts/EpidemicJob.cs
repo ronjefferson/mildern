@@ -12,9 +12,10 @@ public struct EpidemicJob : IJobParallelFor
 
     public float deltaTime;
     public float timeMultiplier;
-    
-    // Time injection to make the RNG dynamic over time
     public float currentSimTime; 
+    
+    // NEW: Used to calculate exact in-game days
+    public float realSecondsPerInGameDay; 
     
     public float infectionRadius;
     public float transmissionRate;
@@ -37,20 +38,27 @@ public struct EpidemicJob : IJobParallelFor
 
         if (agent.healthState == HealthState.Infected)
         {
-            agent.recoveryTimer += deltaTime * timeMultiplier;
+            // FIX: Timer now counts up in actual in-game DAYS instead of real-world seconds
+            agent.recoveryTimer += (deltaTime * timeMultiplier) / realSecondsPerInGameDay;
 
             if (agent.recoveryTimer >= recoveryTime)
             {
-                // RNG Seed includes simulation time to prevent deterministic loops
                 var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(i * 7919 + (uint)(currentSimTime * 1000f)));
                 
                 if (rng.NextFloat() < mortalityRate)
+                {
                     agent.healthState = HealthState.Dead;
+                    agent.isActive = false;
+                    
+                    // FIX: Bury the dead. Instantly moves their 3D model thousands of units underground.
+                    agent.position = new float3(agent.position.x, -9999f, agent.position.z);
+                }
                 else
+                {
                     agent.healthState = HealthState.Recovered;
+                }
 
                 agent.recoveryTimer = 0f;
-                agent.isActive = agent.healthState != HealthState.Dead;
             }
         }
 
@@ -85,7 +93,6 @@ public struct EpidemicJob : IJobParallelFor
                             {
                                 float chance = transmissionRate * (1f - agent.complianceLevel) * deltaTime * timeMultiplier;
                                 
-                                // RNG Seed includes simulation time for daily exposure checks
                                 var rng = Unity.Mathematics.Random.CreateFromIndex(
                                     (uint)(i * 73856 + neighborIdx * 19274 + (uint)(currentSimTime * 1000f))
                                 );

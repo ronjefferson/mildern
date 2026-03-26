@@ -14,6 +14,9 @@ public class BuildingManager : MonoBehaviour
     public float workplaceRatio = 0.2f;
     public float healthcareRatio = 0.1f;
 
+    [Header("Display Settings")]
+    public bool showColors = true; // NEW: Controls the building materials
+
     [Header("Click To Assign")]
     public BuildingType selectedType = BuildingType.Residential;
 
@@ -33,6 +36,16 @@ public class BuildingManager : MonoBehaviour
         FindAllBuildings();
         if (autoAssignTypes)
             AutoAssignTypes();
+    }
+
+    // NEW: Called by the UI Toggle to update all buildings at once
+    public void ToggleColors(bool show)
+    {
+        showColors = show;
+        foreach (Building b in allBuildings)
+        {
+            b.UpdateColor();
+        }
     }
 
     void FindAllBuildings()

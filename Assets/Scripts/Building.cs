@@ -33,7 +33,6 @@ public class Building : MonoBehaviour
         buildingRenderer = GetComponent<Renderer>();
         if (buildingRenderer != null)
         {
-            // Create unique material instance for each building
             buildingMaterial = new Material(buildingRenderer.sharedMaterial);
             buildingRenderer.material = buildingMaterial;
         }
@@ -55,21 +54,16 @@ public class Building : MonoBehaviour
         UpdateColor();
     }
 
-    // Draw gizmo in scene view
     void OnDrawGizmos()
     {
-        // Draw entrance point
         Gizmos.color = Color.yellow;
         Gizmos.DrawSphere(GetEntrancePosition(), 0.5f);
-
-        // Draw line from building to entrance
         Gizmos.color = Color.white;
         Gizmos.DrawLine(transform.position, GetEntrancePosition());
     }
 
     void OnDrawGizmosSelected()
     {
-        // Draw bigger gizmo when selected
         Gizmos.color = Color.green;
         Gizmos.DrawSphere(GetEntrancePosition(), 1f);
         Gizmos.DrawWireCube(transform.position, GetComponent<Renderer>() != null ? 
@@ -78,6 +72,12 @@ public class Building : MonoBehaviour
 
     Color GetColorForType(BuildingType type)
     {
+        // FIX: If the manager says colors are off, force everything to gray!
+        if (BuildingManager.Instance != null && !BuildingManager.Instance.showColors)
+        {
+            return UnassignedColor;
+        }
+
         switch (type)
         {
             case BuildingType.Residential: return ResidentialColor;
@@ -102,20 +102,16 @@ public class Building : MonoBehaviour
             buildingMaterial.color = GetColorForType(buildingType);
     }
 
-    // Returns world position of entrance
     public Vector3 GetEntrancePosition()
     {
         return transform.position + transform.TransformDirection(entranceOffset);
     }
 
-    // Snaps entrance to nearest navmesh point automatically
     public Vector3 GetNavMeshEntrance()
     {
         UnityEngine.AI.NavMeshHit hit;
         if (UnityEngine.AI.NavMesh.SamplePosition(GetEntrancePosition(), out hit, 10f, UnityEngine.AI.NavMesh.AllAreas))
             return hit.position;
-
-        // Fallback to building position
         return transform.position;
     }
 
