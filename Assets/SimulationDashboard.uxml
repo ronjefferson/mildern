@@ -1,37 +1,40 @@
 <ui:UXML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" noNamespaceSchemaLocation="../UIElementsSchema/UIElements.xsd" editor-extension-mode="False">
+    <Style src="project://database/Assets/UIStyles.uss?fileID=7433441132597879392&amp;guid=029dc4af749d45346b0ee844d83b5598&amp;type=3#UIStyles"/>
     <ui:VisualElement name="RootLayout" style="flex-grow: 1; width: 100%; height: 100%; aspect-ratio: auto;">
         <ui:VisualElement name="MiddleRow" style="flex-grow: 1; flex-direction: row; height: 400px;">
             <ui:VisualElement name="LeftPanel" style="flex-grow: 0; width: 400px; background-color: rgb(45, 45, 45); flex-shrink: 0;">
+                <ui:VisualElement class="tab-bar">
+                    <ui:Button text="Setup" name="TabSetupButton" class="tab-button"/>
+                    <ui:Button text="Runtime" name="TabRuntimeButton" class="tab-button"/>
+                </ui:VisualElement>
                 <ui:VisualElement name="SetupContainer" style="flex-grow: 1;">
-                    <ui:TextField label="Population Size" placeholder-text="filler text" name="PopInput" style="color: rgb(255, 255, 255);"/>
-                    <ui:TextField label="Initial Infected" placeholder-text="filler text" name="InfectedInput" style="color: rgb(255, 255, 255);"/>
-                    <ui:TextField label="Infection Radius" placeholder-text="filler text" name="RadiusInput" style="color: rgb(255, 255, 255);"/>
-                    <ui:TextField label="Transmission Rate" placeholder-text="filler text" name="TransRateInput" style="color: rgb(255, 255, 255);"/>
-                    <ui:TextField label="Recovery Time" placeholder-text="filler text" name="RecoveryInput" style="color: rgb(255, 255, 255);"/>
-                    <ui:TextField label="Mortality Rate" placeholder-text="filler text" name="MortalityInput" style="color: rgb(255, 255, 255);"/>
-                    <ui:Button text="Start Simulation" name="StartSimButton"/>
+                    <ui:TextField label="Population Size" placeholder-text="" name="PopInput" class="inspector-field" style="color: rgb(255, 255, 255);"/>
+                    <ui:TextField label="Initial Infected" placeholder-text="" name="InfectedInput" class="inspector-field" style="color: rgb(255, 255, 255);"/>
+                    <ui:TextField label="Infection Radius" placeholder-text="" name="RadiusInput" class="inspector-field" style="color: rgb(255, 255, 255);"/>
+                    <ui:TextField label="Transmission Rate" placeholder-text="" name="TransRateInput" class="inspector-field" style="color: rgb(255, 255, 255);"/>
+                    <ui:TextField label="Recovery Time" placeholder-text="" name="RecoveryInput" class="inspector-field" style="color: rgb(255, 255, 255);"/>
+                    <ui:TextField label="Mortality Rate" placeholder-text="" name="MortalityInput" class="inspector-field" style="color: rgb(255, 255, 255);"/>
+                    <ui:Button text="Start Simulation" name="StartSimButton" class="action-button"/>
                 </ui:VisualElement>
                 <ui:VisualElement name="RuntimeContainer" style="flex-grow: 1; margin-bottom: 0;">
-                    <ui:VisualElement name="TimeContainer" style="flex-grow: 0; margin-bottom: 5px; height: 35px; flex-direction: row;">
-                        <ui:Label text="Day 1 | 08:00" name="TimeLabel" style="color: rgb(255, 255, 255);"/>
-                        <ui:Label text="Speed Info" name="SpeedLabel" style="color: rgb(255, 255, 255);"/>
-                    </ui:VisualElement>
-                    <ui:Label text="Parameters Summary" name="ParameterSummaryLabel" style="color: rgb(255, 255, 255);"/>
                     <ui:VisualElement name="ButtonRow" style="flex-grow: 0; flex-direction: row; height: 30px; flex-shrink: 0; padding-top: 0; padding-right: 0; padding-bottom: 0; padding-left: 0;">
-                        <ui:Button text="||" name="PauseButton"/>
-                        <ui:Button text="&gt;&#10;" name="PlayButton"/>
-                        <ui:Button text="&gt;&gt;" name="FastButton"/>
+                        <ui:Button text="Pause" name="PauseButton" class="action-button"/>
+                        <ui:Button text="Play" name="PlayButton" class="action-button"/>
+                        <ui:Button text="Increase Speed" name="FastButton" class="action-button"/>
                     </ui:VisualElement>
                     <ui:Toggle label="Show Building Colors" name="ColorToggle" value="true" style="color: rgb(255, 255, 255);"/>
+                    <ui:Toggle label="Toggle Social Distancing" name="SocialDistanceToggle" style="color: rgb(255, 255, 255);"/>
+                    <ui:Toggle label="Toggle Lockdown" name="LockdownToggle" style="color: rgb(255, 255, 255);"/>
+                    <VirusVaccineControls style="align-self: auto;"/>
                 </ui:VisualElement>
             </ui:VisualElement>
             <ui:VisualElement name="GameViewArea" style="flex-grow: 1; height: 100%;"/>
         </ui:VisualElement>
-        <ui:VisualElement name="BottomPanel" style="flex-grow: 1; height: 50px; background-color: rgb(32, 32, 32); flex-shrink: 0; flex-direction: column;">
-            <ui:Label text="Population Info" name="PopulationLabel" style="color: rgb(255, 255, 255);"/>
+        <ui:VisualElement name="BottomPanel" style="flex-grow: 1; height: 10px; background-color: rgb(32, 32, 32); flex-shrink: 0; flex-direction: column;">
             <ui:VisualElement name="GraphsContainer" style="flex-grow: 1; flex-direction: row;">
+                <SimulationStatsDashboard style="width: 200px; height: 96px; border-left-width: 10px; border-top-width: 10px; border-right-width: 10px; border-bottom-width: 10px;"/>
                 <ActiveCasesGraph name="ActiveCasesGraph" style="flex-grow: 1; margin-top: 10px; margin-right: 10px; margin-bottom: 10px; margin-left: 10px;"/>
-                <EpidemicBarGraph name="BarGraph" style="flex-grow: 1;"/>
+                <EpidemicBarGraph name="BarGraph" style="flex-grow: 1; height: auto; width: 200px;"/>
                 <EpidemicLineGraph name="LineGraph" style="flex-grow: 1; margin-top: 10px; margin-right: 10px; margin-bottom: 10px; margin-left: 10px;"/>
             </ui:VisualElement>
         </ui:VisualElement>

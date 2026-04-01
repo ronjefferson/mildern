@@ -4,6 +4,10 @@ using UnityEngine.InputSystem;
 [RequireComponent(typeof(Camera))]
 public class CameraController : MonoBehaviour
 {
+    [Header("Visual Settings")]
+    [Tooltip("Choose the background color for your simulation void!")]
+    public Color backgroundColor = new Color(0.1f, 0.1f, 0.12f, 1f); // Defaults to a sleek dark blue/gray
+
     [Header("Orbit Settings")]
     public float orbitSpeed = 0.3f;
     public float minVerticalAngle = 10f;
@@ -25,9 +29,12 @@ public class CameraController : MonoBehaviour
     void Start()
     {
         cam = GetComponent<Camera>();
-        cam.orthographic = true; 
         
-        // Ensure the camera can see the whole city without clipping
+        // --- NEW: Apply the custom background color! ---
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = backgroundColor;
+        
+        cam.orthographic = true; 
         cam.nearClipPlane = -5000f; 
         cam.farClipPlane = 5000f;
 
@@ -58,26 +65,23 @@ public class CameraController : MonoBehaviour
 
         Vector2 mouseDelta = Mouse.current.delta.ReadValue();
 
-        // ORBIT: Right-Click and Drag
         if (Mouse.current.rightButton.isPressed)
         {
             currentX += mouseDelta.x * orbitSpeed;
             currentY -= mouseDelta.y * orbitSpeed;
             currentY = Mathf.Clamp(currentY, minVerticalAngle, maxVerticalAngle);
         }
-        // PAN: Middle-Click and Drag
         else if (Mouse.current.middleButton.isPressed)
         {
             float adjustedPanSpeed = panSpeed * (cam.orthographicSize / 50f);
             
             Vector3 move = -transform.right * mouseDelta.x * adjustedPanSpeed;
             move += -transform.up * mouseDelta.y * adjustedPanSpeed;
-            move.y = 0f; // Lock Y-axis so panning doesn't sink the camera
+            move.y = 0f; 
             
             target.position += move;
         }
 
-        // ZOOM: Scroll Wheel
         float scroll = Mouse.current.scroll.ReadValue().y;
         if (scroll != 0f)
         {

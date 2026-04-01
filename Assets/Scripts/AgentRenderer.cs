@@ -10,6 +10,7 @@ public class AgentRenderer : MonoBehaviour
     [Header("Rendering")]
     public Mesh agentMesh;
     public Material susceptibleMaterial;
+    public Material exposedMaterial;      // NEW: Slot for the Orange Incubation Material!
     public Material infectedMaterial;
     public Material recoveredMaterial;
     public Material vaccinatedMaterial;
@@ -22,6 +23,7 @@ public class AgentRenderer : MonoBehaviour
     public void UpdateRender(NativeArray<SimulationAgent> agents, float renderTime, float groundOffset = 0f)
     {
         List<Matrix4x4> susceptible = new List<Matrix4x4>();
+        List<Matrix4x4> exposed = new List<Matrix4x4>();      // NEW: List to hold the exposed agents
         List<Matrix4x4> infected = new List<Matrix4x4>();
         List<Matrix4x4> recovered = new List<Matrix4x4>();
         List<Matrix4x4> vaccinated = new List<Matrix4x4>();
@@ -29,6 +31,8 @@ public class AgentRenderer : MonoBehaviour
         for (int i = 0; i < agents.Length; i++)
         {
             SimulationAgent agent = agents[i];
+            
+            // Note: If they are inside a building, they turn invisible on the streets!
             if (!agent.isActive || agent.isInsideBuilding) continue;
 
             float3 renderPos;
@@ -61,16 +65,20 @@ public class AgentRenderer : MonoBehaviour
                 Vector3.one * agentSize
             );
 
+            // Sort the agents into their correct color buckets
             switch (agent.healthState)
             {
                 case HealthState.Susceptible: susceptible.Add(matrix); break;
+                case HealthState.Exposed: exposed.Add(matrix); break;         // NEW: Catch the exposed state!
                 case HealthState.Infected: infected.Add(matrix); break;
                 case HealthState.Recovered: recovered.Add(matrix); break;
                 case HealthState.Vaccinated: vaccinated.Add(matrix); break;
             }
         }
 
+        // Paint the batches to the screen
         DrawBatched(susceptible, susceptibleMaterial);
+        DrawBatched(exposed, exposedMaterial);                // NEW: Paint the exposed batch!
         DrawBatched(infected, infectedMaterial);
         DrawBatched(recovered, recoveredMaterial);
         DrawBatched(vaccinated, vaccinatedMaterial);

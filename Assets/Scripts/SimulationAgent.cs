@@ -2,21 +2,12 @@
 
 public enum HealthState
 {
-    Susceptible,
-    Infected,
-    Recovered,
-    Vaccinated,
-    Dead
+    Susceptible, Exposed, Infected, Recovered, Vaccinated, Dead
 }
 
 public enum AgentScheduleState
 {
-    Home,
-    Commuting,
-    AtWork,
-    AtCommercial,
-    Leisure,
-    Returning
+    Home, Commuting, AtWork, AtCommercial, Leisure, Returning, AtHospital
 }
 
 public struct SimulationAgent
@@ -35,18 +26,27 @@ public struct SimulationAgent
 
     public float infectionTimer;
     public float recoveryTimer;
+    public float incubationTimer;
+
+    // --- NEW: THE UNIFIED IMMUNITY SHIELD ---
+    public float immunityDefense; // 0.0 (Vulnerable) to 1.0 (Perfectly Immune)
+
+    public bool isSeekingVaccine;
+    public int vaccineClinicID;
+    public bool isVaccineClinicCommercial;
+    public float vaccineWaitTimer; 
+
+    public int healthcareID;      
+    public bool isAtHospital;     
     public float speed;
 
     public int homeID;
     public int workID;
     public int commercialID;
+    
     public int currentWaypointIndex;
     public int destinationWaypointIndex;
-    
-    public int prev1; 
-    public int prev2;
-    public int prev3;
-    public int prev4;
+    public int prev1, prev2, prev3, prev4;
     
     public float workStartHour;
     public float workEndHour;
