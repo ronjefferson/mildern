@@ -9,18 +9,20 @@ public struct ScheduleUpdateJob : IJobParallelFor
     public NativeArray<SimulationAgent> agents;
     
     [ReadOnly] public NativeArray<int> homeNearestWaypoint, workNearestWaypoint, commercialNearestWaypoint, hospitalNearestWaypoint;
-    [ReadOnly] public NativeArray<float3> homePositions, hospitalPositions, commercialPositions; // Added Commercial!
+    [ReadOnly] public NativeArray<float3> homePositions, hospitalPositions, commercialPositions; 
     [ReadOnly] public NativeArray<float3> waypoints;
 
     public float currentHour, stuckTimeoutSimHours, waypointReachDistance, destinationOffsetRange, groundY;
+    
     public bool isLockdown;
+    public float lockdownAbidanceThreshold; 
 
     public void Execute(int i)
     {
         SimulationAgent agent = agents[i];
         if (!agent.isActive) return;
 
-        bool forceHome = isLockdown || currentHour >= agent.returnHomeHour || currentHour < 5f;
+        bool forceHome = (isLockdown && agent.complianceLevel <= lockdownAbidanceThreshold) || currentHour >= agent.returnHomeHour || currentHour < 5f;
         bool wantsHospital = false;
 
         if (agent.healthState == HealthState.Infected)
@@ -30,20 +32,21 @@ public struct ScheduleUpdateJob : IJobParallelFor
         }
 
         // ==========================================
-        // NEW: ACTIVE VACCINE DETOUR!
+        // VACCINE DETOUR (STRICT ARRIVAL LOGIC)
         // ==========================================
         if (agent.isSeekingVaccine)
         {
-            forceHome = false; wantsHospital = false; // Vaccines override everything!
+            forceHome = false; wantsHospital = false; 
             
             bool isAtTargetState = (agent.isVaccineClinicCommercial && agent.scheduleState == AgentScheduleState.AtCommercial) || 
                                    (!agent.isVaccineClinicCommercial && agent.scheduleState == AgentScheduleState.AtHospital);
 
-            // If they aren't heading to the clinic yet, force them to start walking!
             if (!isAtTargetState)
             {
                 agent.scheduleState = agent.isVaccineClinicCommercial ? AgentScheduleState.AtCommercial : AgentScheduleState.AtHospital;
                 agent.isInsideBuilding = false;
+                agent.isAtHospital = false; // FORCE FALSE: They must walk there!
+                
                 agent.destinationWaypointIndex = agent.isVaccineClinicCommercial ? commercialNearestWaypoint[agent.vaccineClinicID] : hospitalNearestWaypoint[agent.vaccineClinicID];
                 agent.hasDestinationWaypoint = true;
                 agent.hasMovementSegment = false;
@@ -107,7 +110,8 @@ public struct ScheduleUpdateJob : IJobParallelFor
             case AgentScheduleState.AtCommercial:
                 if (ReachedOffsetDestination(agent.position, waypoints[commercialNearestWaypoint[agent.commercialID]], agent.personalOffset))
                 {
-                    agent.isInsideBuilding = true; agent.hasMovementSegment = false; agent.hasDestinationWaypoint = false; agent.commutingStartTime = -9999f;
+                    agent.isInsideBuilding = true; agent.hasMovementSegment = false; agent.hasDestinationWaypoint = false; 
+                    agent.commutingStartTime = -9999f; // SET ON EXACT ARRIVAL!
                     if (!agent.isSeekingVaccine && currentHour >= agent.commercialArrivalHour + 1.5f) SetReturningHome(ref agent, i);
                 }
                 break;
@@ -115,7 +119,8 @@ public struct ScheduleUpdateJob : IJobParallelFor
             case AgentScheduleState.AtHospital:
                 if (ReachedOffsetDestination(agent.position, waypoints[hospitalNearestWaypoint[agent.healthcareID]], agent.personalOffset))
                 {
-                    agent.isInsideBuilding = true; agent.isAtHospital = true; 
+                    agent.isInsideBuilding = true; 
+                    agent.isAtHospital = true; // SET ON EXACT ARRIVAL!
                     agent.hasMovementSegment = false; agent.hasDestinationWaypoint = false; agent.commutingStartTime = -9999f;
                     agent.position = new float3(hospitalPositions[agent.healthcareID].x, groundY, hospitalPositions[agent.healthcareID].z) + agent.personalOffset;
                 }

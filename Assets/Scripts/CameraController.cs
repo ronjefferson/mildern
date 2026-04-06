@@ -1,12 +1,13 @@
 ﻿using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.UIElements; // --- NEW: Required for the solid UI check ---
 
 [RequireComponent(typeof(Camera))]
 public class CameraController : MonoBehaviour
 {
     [Header("Visual Settings")]
     [Tooltip("Choose the background color for your simulation void!")]
-    public Color backgroundColor = new Color(0.1f, 0.1f, 0.12f, 1f); // Defaults to a sleek dark blue/gray
+    public Color backgroundColor = new Color(0.1f, 0.1f, 0.12f, 1f); 
 
     [Header("Orbit Settings")]
     public float orbitSpeed = 0.3f;
@@ -30,7 +31,6 @@ public class CameraController : MonoBehaviour
     {
         cam = GetComponent<Camera>();
         
-        // --- NEW: Apply the custom background color! ---
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = backgroundColor;
         
@@ -62,6 +62,35 @@ public class CameraController : MonoBehaviour
     void LateUpdate() 
     {
         if (target == null || Mouse.current == null) return;
+
+        // ==========================================
+        // FIX: PRECISE SOLID UI HOVER CHECK
+        // ==========================================
+        UIDocument uiDoc = FindObjectOfType<UIDocument>();
+        if (uiDoc != null && uiDoc.rootVisualElement != null && uiDoc.rootVisualElement.panel != null)
+        {
+            Vector2 mousePos = Mouse.current.position.ReadValue();
+            Vector2 uiPos = new Vector2(mousePos.x, Screen.height - mousePos.y); 
+            VisualElement picked = uiDoc.rootVisualElement.panel.Pick(uiPos);
+            
+            bool overSolidUI = false;
+            VisualElement current = picked;
+            
+            // Travel up the UI tree. If we hit ANY element with a visible background color, we are over the UI.
+            while (current != null)
+            {
+                if (current.resolvedStyle.backgroundColor.a > 0.01f)
+                {
+                    overSolidUI = true;
+                    break;
+                }
+                current = current.parent;
+            }
+            
+            // Abort all camera input if the mouse is resting on a solid UI panel!
+            if (overSolidUI) return; 
+        }
+        // ==========================================
 
         Vector2 mouseDelta = Mouse.current.delta.ReadValue();
 

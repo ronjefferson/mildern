@@ -27,9 +27,14 @@ public struct SimulationAgent
     public float infectionTimer;
     public float recoveryTimer;
     public float incubationTimer;
+    public float immunityTimer; 
 
-    // --- NEW: THE UNIFIED IMMUNITY SHIELD ---
-    public float immunityDefense; // 0.0 (Vulnerable) to 1.0 (Perfectly Immune)
+    public int activeStrainID;      
+    public int protectedStrainID;   
+    
+    // NEW: T-Cell / B-Cell Long Term Memory!
+    // A bitmask storing every strain they have EVER recovered from
+    public uint historicalStrainMask; 
 
     public bool isSeekingVaccine;
     public int vaccineClinicID;

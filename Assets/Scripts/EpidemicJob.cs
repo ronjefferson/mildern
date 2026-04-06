@@ -29,11 +29,20 @@ public struct EpidemicJob : IJobParallelFor
     [ReadOnly] public NativeParallelMultiHashMap<int, int> grid;      
     [ReadOnly] public NativeParallelMultiHashMap<int, int> indoorMap; 
 
-    public float deltaTime, timeMultiplier, currentSimTime, realSecondsPerInGameDay;
+    public float deltaTime, currentSimTime, realSecondsPerInGameDay;
     public float infectionRadius, transmissionRate, recoveryTime, mortalityRate;
     public float minIncubationDays, maxIncubationDays; 
-    public float naturalImmunityGiven; // How much shield catching the virus gives you (e.g. 0.85f)
-    public float dailyImmunityDecay; // How much shield drops per day (e.g. 0.01f)
+    
+    public float currentVaccineEfficacy; 
+    public float naturalImmunityEfficacy; 
+    public float immunityDurationDays; 
+    public float evasionPenaltyPerLevel; 
+
+    public float historicalImmunityEfficacy; 
+    public float historicalRecoveryMultiplier; 
+    
+    // --- NEW: HOSPITAL SAFETY PROTOCOL ---
+    public float hospitalTransmissionMultiplier; 
 
     public float cellSize; public float3 gridOrigin; public int gridWidth, gridHeight;
 
@@ -44,15 +53,13 @@ public struct EpidemicJob : IJobParallelFor
 
         var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(i * 7919 + (int)(currentSimTime * 1000) + 1));
 
-        // 1. CONSTANT WANING IMMUNITY (Applies to everyone)
-        if (agent.immunityDefense > 0f)
+        // 1. GUARANTEED COOLDOWN TIMER
+        if (agent.healthState == HealthState.Recovered || agent.healthState == HealthState.Vaccinated)
         {
-            float decayThisFrame = dailyImmunityDecay * (deltaTime / realSecondsPerInGameDay);
-            agent.immunityDefense = math.max(0f, agent.immunityDefense - decayThisFrame);
-
-            // If their shield drops to 0, they visually return to Susceptible
-            if (agent.healthState == HealthState.Recovered || agent.healthState == HealthState.Vaccinated) {
-                if (agent.immunityDefense <= 0.05f) agent.healthState = HealthState.Susceptible;
+            agent.immunityTimer -= deltaTime; 
+            if (agent.immunityTimer <= 0) {
+                agent.healthState = HealthState.Susceptible; 
+                agent.protectedStrainID = -1; 
             }
         }
 
@@ -60,40 +67,54 @@ public struct EpidemicJob : IJobParallelFor
         if (agent.healthState == HealthState.Exposed)
         {
             agent.incubationTimer -= deltaTime;
-            if (agent.incubationTimer <= 0) { agent.healthState = HealthState.Infected; agent.recoveryTimer = recoveryTime * realSecondsPerInGameDay; }
+            if (agent.incubationTimer <= 0) { 
+                agent.healthState = HealthState.Infected; 
+                agent.recoveryTimer = recoveryTime * realSecondsPerInGameDay; 
+            }
         }
         
         // 3. SICK PHASE
         else if (agent.healthState == HealthState.Infected)
         {
-            float currentRecoverySpeed = 1f; float currentMortalityChance = mortalityRate;
-            if (agent.isAtHospital) { currentRecoverySpeed = 2f; currentMortalityChance = mortalityRate * 0.2f; }
+            float currentRecoverySpeed = 1f; 
+            float currentMortalityChance = mortalityRate;
             
-            // Even if sick, a residual shield helps them survive!
-            if (agent.immunityDefense > 0.2f) { currentRecoverySpeed *= 1.5f; currentMortalityChance *= 0.1f; }
+            if (agent.isAtHospital) { currentRecoverySpeed = 2f; currentMortalityChance = mortalityRate * 0.2f; }
+            if (agent.protectedStrainID != -1) { currentRecoverySpeed *= 1.5f; currentMortalityChance *= 0.1f; }
+            
+            bool hasHistoricalMemory = (agent.historicalStrainMask & (1u << agent.activeStrainID)) != 0;
+            if (hasHistoricalMemory) {
+                currentRecoverySpeed *= historicalRecoveryMultiplier; 
+                currentMortalityChance *= 0.1f; 
+            }
 
             agent.recoveryTimer -= (deltaTime * currentRecoverySpeed);
             if (agent.recoveryTimer <= 0)
             {
-                if (rng.NextFloat() < currentMortalityChance) { agent.healthState = HealthState.Dead; agent.isActive = false; }
+                if (rng.NextFloat() < currentMortalityChance) { 
+                    agent.healthState = HealthState.Dead; 
+                    agent.isActive = false; 
+                }
                 else 
                 { 
                     agent.healthState = HealthState.Recovered;
-                    // NATURAL IMMUNITY TOP-OFF (Compounding Math!)
-                    agent.immunityDefense = agent.immunityDefense + ((1.0f - agent.immunityDefense) * naturalImmunityGiven); 
+                    agent.historicalStrainMask |= (1u << agent.activeStrainID);
+                    agent.protectedStrainID = agent.activeStrainID; 
+                    agent.activeStrainID = -1;
+                    agent.immunityTimer = immunityDurationDays * realSecondsPerInGameDay; 
                 }
             }
         }
         
-        // 4. INFECTION CHECK (Outdoor & Indoor combined logic)
+        // 4. INFECTION CHECK
         else if (agent.healthState == HealthState.Susceptible || agent.healthState == HealthState.Recovered || agent.healthState == HealthState.Vaccinated)
         {
             bool gotExposed = false;
-            float vulnerability = math.max(0f, 1.0f - agent.immunityDefense); // The core math!
+            int newStrain = -1;
 
-            // Outdoors
             if (!agent.isInsideBuilding) {
-                int gridX = (int)math.floor((agent.position.x - gridOrigin.x) / cellSize); int gridY = (int)math.floor((agent.position.z - gridOrigin.z) / cellSize);
+                int gridX = (int)math.floor((agent.position.x - gridOrigin.x) / cellSize); 
+                int gridY = (int)math.floor((agent.position.z - gridOrigin.z) / cellSize);
                 for (int x = -1; x <= 1; x++) {
                     for (int y = -1; y <= 1; y++) {
                         int checkX = gridX + x; int checkY = gridY + y;
@@ -101,8 +122,24 @@ public struct EpidemicJob : IJobParallelFor
                             foreach (int neighborIndex in grid.GetValuesForKey(checkX + checkY * gridWidth)) {
                                 if (neighborIndex == i) continue;
                                 SimulationAgent neighbor = agentsIn[neighborIndex];
-                                if (neighbor.healthState == HealthState.Infected && !neighbor.isInsideBuilding && math.distancesq(agent.position, neighbor.position) <= infectionRadius * infectionRadius) {
-                                    if (rng.NextFloat() < (transmissionRate * vulnerability * deltaTime)) { gotExposed = true; break; }
+                                
+                                if (neighbor.healthState == HealthState.Infected && !neighbor.isInsideBuilding && math.distancesq(agent.position, neighbor.position) <= infectionRadius * infectionRadius) 
+                                {
+                                    float vulnerability = 1.0f;
+                                    
+                                    if (agent.healthState != HealthState.Susceptible && agent.protectedStrainID != -1) {
+                                        int gap = math.abs(neighbor.activeStrainID - agent.protectedStrainID);
+                                        float penalty = gap * evasionPenaltyPerLevel;
+                                        float baseEff = (agent.healthState == HealthState.Recovered) ? naturalImmunityEfficacy : currentVaccineEfficacy;
+                                        vulnerability = 1.0f - math.max(0f, baseEff - penalty);
+                                    }
+                                    else if ((agent.historicalStrainMask & (1u << neighbor.activeStrainID)) != 0) {
+                                        vulnerability = 1.0f - historicalImmunityEfficacy; 
+                                    }
+
+                                    if (vulnerability > 0f && rng.NextFloat() < (transmissionRate * vulnerability * deltaTime)) { 
+                                        gotExposed = true; newStrain = neighbor.activeStrainID; break; 
+                                    }
                                 }
                             }
                         }
@@ -111,7 +148,6 @@ public struct EpidemicJob : IJobParallelFor
                     if (gotExposed) break;
                 }
             }
-            // Indoors
             else {
                 int buildingKey = -1;
                 if (agent.scheduleState == AgentScheduleState.Home) buildingKey = 1000000 + agent.homeID;
@@ -120,16 +156,46 @@ public struct EpidemicJob : IJobParallelFor
                 else if (agent.scheduleState == AgentScheduleState.AtHospital) buildingKey = 4000000 + agent.healthcareID;
 
                 if (buildingKey != -1) {
+                    
+                    // ==========================================
+                    // NEW: DYNAMIC INDOOR MULTIPLIER
+                    // ==========================================
+                    float indoorMultiplier = 1.5f; // Normal crowded buildings (150% transmission rate)
+                    if (agent.scheduleState == AgentScheduleState.AtHospital) {
+                        indoorMultiplier = hospitalTransmissionMultiplier; // Hospitals use strict PPE (e.g., 10% transmission rate)
+                    }
+
                     foreach (int neighborIndex in indoorMap.GetValuesForKey(buildingKey)) {
                         if (neighborIndex == i) continue;
-                        if (agentsIn[neighborIndex].healthState == HealthState.Infected) {
-                            if (rng.NextFloat() < (transmissionRate * 1.5f * vulnerability * deltaTime)) { gotExposed = true; break; }
+                        SimulationAgent neighbor = agentsIn[neighborIndex];
+
+                        if (neighbor.healthState == HealthState.Infected) {
+                            float vulnerability = 1.0f;
+                            
+                            if (agent.healthState != HealthState.Susceptible && agent.protectedStrainID != -1) {
+                                int gap = math.abs(neighbor.activeStrainID - agent.protectedStrainID);
+                                float penalty = gap * evasionPenaltyPerLevel;
+                                float baseEff = (agent.healthState == HealthState.Recovered) ? naturalImmunityEfficacy : currentVaccineEfficacy;
+                                vulnerability = 1.0f - math.max(0f, baseEff - penalty);
+                            }
+                            else if ((agent.historicalStrainMask & (1u << neighbor.activeStrainID)) != 0) {
+                                vulnerability = 1.0f - historicalImmunityEfficacy; 
+                            }
+
+                            // APPLY THE NEW INDOOR MULTIPLIER HERE
+                            if (vulnerability > 0f && rng.NextFloat() < (transmissionRate * indoorMultiplier * vulnerability * deltaTime)) { 
+                                gotExposed = true; newStrain = neighbor.activeStrainID; break; 
+                            }
                         }
                     }
                 }
             }
 
-            if (gotExposed) { agent.healthState = HealthState.Exposed; agent.incubationTimer = rng.NextFloat(minIncubationDays, maxIncubationDays) * realSecondsPerInGameDay; }
+            if (gotExposed) { 
+                agent.healthState = HealthState.Exposed; 
+                agent.activeStrainID = newStrain; 
+                agent.incubationTimer = rng.NextFloat(minIncubationDays, maxIncubationDays) * realSecondsPerInGameDay; 
+            }
         }
         agentsOut[i] = agent;
     }
