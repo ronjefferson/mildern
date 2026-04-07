@@ -26,6 +26,8 @@
                     <ui:Toggle label="Show Building Colors" name="ColorToggle" value="true" style="color: rgb(255, 255, 255);"/>
                     <ui:Toggle label="Toggle Social Distancing" name="SocialDistanceToggle" style="color: rgb(255, 255, 255);"/>
                     <ui:Toggle label="Toggle Lockdown" name="LockdownToggle" style="color: rgb(255, 255, 255);"/>
+                    <ui:Button text="Set Baseline" name="SetBaselineButton" class="action-button"/>
+                    <ui:Button text="Cancel Attempt" name="CancelAttemptButton" class="action-button"/>
                     <VirusVaccineControls style="align-self: auto;"/>
                 </ui:VisualElement>
             </ui:VisualElement>
@@ -34,9 +36,9 @@
         <ui:VisualElement name="BottomPanel" style="flex-grow: 1; height: 10px; background-color: rgb(32, 32, 32); flex-shrink: 0; flex-direction: column;">
             <ui:VisualElement name="GraphsContainer" style="flex-grow: 1; flex-direction: row;">
                 <SimulationStatsDashboard style="width: 200px; height: 96px; border-left-width: 10px; border-top-width: 10px; border-right-width: 10px; border-bottom-width: 10px;"/>
+                <EpidemicLineGraph/>
                 <ActiveCasesGraph name="ActiveCasesGraph" style="flex-grow: 1; margin-top: 10px; margin-right: 10px; margin-bottom: 10px; margin-left: 10px;"/>
                 <EpidemicBarGraph name="BarGraph" style="flex-grow: 1; height: auto; width: 200px;"/>
-                <EpidemicLineGraph name="LineGraph" style="flex-grow: 1; margin-top: 10px; margin-right: 10px; margin-bottom: 10px; margin-left: 10px;"/>
             </ui:VisualElement>
         </ui:VisualElement>
     </ui:VisualElement>

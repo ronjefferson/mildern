@@ -3,19 +3,34 @@ using UnityEngine.UIElements;
 using System.Collections.Generic;
 
 // ==========================================
-// WIDGET 1: Epidemic Line Graph
+// WIDGET 1: Epidemic Line Graph (Interactive)
 // ==========================================
 public class EpidemicLineGraph : VisualElement
 {
     public new class UxmlFactory : UxmlFactory<EpidemicLineGraph, UxmlTraits> { }
     
-    private List<Vector3> sData = new List<Vector3>(), eData = new List<Vector3>(), iData = new List<Vector3>();
-    private List<Vector3> rData = new List<Vector3>(), vData = new List<Vector3>(), dData = new List<Vector3>();
+    // Active Data
+    public List<Vector3> sData = new List<Vector3>(), eData = new List<Vector3>(), iData = new List<Vector3>();
+    public List<Vector3> rData = new List<Vector3>(), vData = new List<Vector3>(), dData = new List<Vector3>();
+    
+    // Ghost Data
+    private List<Vector3> ghostSData = new List<Vector3>(), ghostEData = new List<Vector3>(), ghostIData = new List<Vector3>();
+    private List<Vector3> ghostRData = new List<Vector3>(), ghostVData = new List<Vector3>(), ghostDData = new List<Vector3>();
+
     public int maxPopulation = 10000;
     private int displayMaxDays = 30; 
 
     private Label yMaxLabel, yMidLabel, xMaxLabel, xMidLabel;
     private VisualElement graphArea;
+
+    // Timeline Variables
+    public System.Action<int> OnDayClicked; 
+    public System.Action OnCancelClicked; // --- NEW: Right-Click Event ---
+
+    public int maxScrubableDay = 0; 
+    private int hoveredDay = -1; 
+    public int pinnedDay = -1; // --- NEW: Tracks the dropped pin ---
+    private bool isHovering = false;
 
     public EpidemicLineGraph()
     {
@@ -32,7 +47,13 @@ public class EpidemicLineGraph : VisualElement
         var rightColumn = new VisualElement { style = { flexGrow = 1, flexDirection = FlexDirection.Column } };
         
         graphArea = new VisualElement(); graphArea.AddToClassList("graph-container");
+        graphArea.style.flexGrow = 1; graphArea.pickingMode = PickingMode.Position;
         graphArea.generateVisualContent += OnGenerateVisualContent;
+        
+        graphArea.RegisterCallback<PointerEnterEvent>(evt => isHovering = true);
+        graphArea.RegisterCallback<PointerLeaveEvent>(evt => { isHovering = false; hoveredDay = -1; graphArea.MarkDirtyRepaint(); });
+        graphArea.RegisterCallback<PointerMoveEvent>(OnPointerMove);
+        graphArea.RegisterCallback<PointerDownEvent>(OnPointerDown);
         
         var xAxisContainer = new VisualElement(); xAxisContainer.AddToClassList("x-axis-container");
         var xMinLabel = new Label("Day 0"); xMinLabel.AddToClassList("axis-label");
@@ -47,17 +68,94 @@ public class EpidemicLineGraph : VisualElement
         Add(title);
     }
 
+    private void OnPointerMove(PointerMoveEvent evt)
+    {
+        if (!isHovering) return;
+        float width = graphArea.contentRect.width;
+        float normalizedX = Mathf.Clamp01(evt.localPosition.x / width);
+        hoveredDay = Mathf.RoundToInt(normalizedX * displayMaxDays);
+        graphArea.MarkDirtyRepaint(); 
+    }
+
+    // --- FIX: Left Click to Pin, Right Click to Cancel ---
+    private void OnPointerDown(PointerDownEvent evt)
+    {
+        if (evt.button == 0) // Left Click
+        {
+            if (hoveredDay >= 0 && hoveredDay <= maxScrubableDay)
+            {
+                pinnedDay = hoveredDay;
+                OnDayClicked?.Invoke(pinnedDay);
+                graphArea.MarkDirtyRepaint();
+            }
+        }
+        else if (evt.button == 1) // Right Click
+        {
+            if (pinnedDay != -1)
+            {
+                pinnedDay = -1;
+                OnCancelClicked?.Invoke();
+                graphArea.MarkDirtyRepaint();
+            }
+        }
+    }
+
+    public void SetGhostBaseline()
+    {
+        ghostSData = new List<Vector3>(sData); ghostEData = new List<Vector3>(eData);
+        ghostIData = new List<Vector3>(iData); ghostRData = new List<Vector3>(rData);
+        ghostVData = new List<Vector3>(vData); ghostDData = new List<Vector3>(dData);
+        graphArea.MarkDirtyRepaint();
+    }
+
+    public void RestoreFromGhost()
+    {
+        sData = new List<Vector3>(ghostSData); eData = new List<Vector3>(ghostEData);
+        iData = new List<Vector3>(ghostIData); rData = new List<Vector3>(ghostRData);
+        vData = new List<Vector3>(ghostVData); dData = new List<Vector3>(ghostDData);
+        
+        displayMaxDays = sData.Count > 0 ? Mathf.Max(Mathf.CeilToInt(sData[sData.Count - 1].x), 30) : 30;
+        maxScrubableDay = displayMaxDays;
+        graphArea.MarkDirtyRepaint();
+    }
+
     public void ClearData()
     {
         sData.Clear(); eData.Clear(); iData.Clear(); 
         rData.Clear(); vData.Clear(); dData.Clear();
+        ghostSData.Clear(); ghostEData.Clear(); ghostIData.Clear(); 
+        ghostRData.Clear(); ghostVData.Clear(); ghostDData.Clear();
         displayMaxDays = 30;
+        hoveredDay = -1;
+        pinnedDay = -1;
+        maxScrubableDay = 0;
+        graphArea.MarkDirtyRepaint();
+    }
+
+    public void TruncateData(int branchDay)
+    {
+        float exactBranchTime = branchDay - 1f; 
+
+        sData.RemoveAll(v => v.x > exactBranchTime); eData.RemoveAll(v => v.x > exactBranchTime);
+        iData.RemoveAll(v => v.x > exactBranchTime); rData.RemoveAll(v => v.x > exactBranchTime);
+        vData.RemoveAll(v => v.x > exactBranchTime); dData.RemoveAll(v => v.x > exactBranchTime);
+        
+        displayMaxDays = Mathf.Max(branchDay, 30);
+        int maxGhostDay = ghostSData.Count > 0 ? Mathf.CeilToInt(ghostSData[ghostSData.Count - 1].x) : 0;
+        displayMaxDays = Mathf.Max(displayMaxDays, maxGhostDay);
+        
+        maxScrubableDay = branchDay;
+        pinnedDay = -1; // Clear pin on truncate
         graphArea.MarkDirtyRepaint();
     }
 
     public void AddData(int s, int e, int i, int r, int v, int d, float day)
     {
         displayMaxDays = Mathf.Max(Mathf.CeilToInt(day), 30); 
+        
+        int maxGhostDay = ghostSData.Count > 0 ? Mathf.CeilToInt(ghostSData[ghostSData.Count - 1].x) : 0;
+        displayMaxDays = Mathf.Max(displayMaxDays, maxGhostDay);
+
         yMaxLabel.text = (maxPopulation / 1000f).ToString("0.#") + "k";
         yMidLabel.text = ((maxPopulation / 2f) / 1000f).ToString("0.#") + "k";
         xMaxLabel.text = "Day " + displayMaxDays;
@@ -72,12 +170,55 @@ public class EpidemicLineGraph : VisualElement
     {
         float w = graphArea.contentRect.width; float h = graphArea.contentRect.height;
         DrawGridAndAxes(ctx, w, h);
-        DrawLine(ctx, sData, new Color(0.2f, 0.8f, 0.8f), w, h); 
-        DrawLine(ctx, eData, new Color(1f, 0.6f, 0f), w, h);     
-        DrawLine(ctx, iData, new Color(1f, 0.2f, 0.2f), w, h);   
-        DrawLine(ctx, rData, new Color(0.2f, 0.8f, 0.2f), w, h); 
-        DrawLine(ctx, vData, new Color(1f, 0.9f, 0.2f), w, h);   
-        DrawLine(ctx, dData, new Color(0.4f, 0.4f, 0.4f), w, h); 
+
+        DrawLine(ctx, ghostSData, new Color(0.2f, 0.8f, 0.8f, 0.3f), w, h); 
+        DrawLine(ctx, ghostEData, new Color(1f, 0.6f, 0f, 0.3f), w, h);     
+        DrawLine(ctx, ghostIData, new Color(1f, 0.2f, 0.2f, 0.3f), w, h);   
+        DrawLine(ctx, ghostRData, new Color(0.2f, 0.8f, 0.2f, 0.3f), w, h); 
+        DrawLine(ctx, ghostVData, new Color(1f, 0.9f, 0.2f, 0.3f), w, h);   
+        DrawLine(ctx, ghostDData, new Color(0.4f, 0.4f, 0.4f, 0.3f), w, h); 
+
+        DrawLine(ctx, sData, new Color(0.2f, 0.8f, 0.8f, 1f), w, h); 
+        DrawLine(ctx, eData, new Color(1f, 0.6f, 0f, 1f), w, h);     
+        DrawLine(ctx, iData, new Color(1f, 0.2f, 0.2f, 1f), w, h);   
+        DrawLine(ctx, rData, new Color(0.2f, 0.8f, 0.2f, 1f), w, h); 
+        DrawLine(ctx, vData, new Color(1f, 0.9f, 0.2f, 1f), w, h);   
+        DrawLine(ctx, dData, new Color(0.4f, 0.4f, 0.4f, 1f), w, h); 
+
+        // --- NEW: Draw the Gold "Pinned" Flag ---
+        if (pinnedDay >= 0 && pinnedDay <= maxScrubableDay)
+        {
+            var p2D = ctx.painter2D;
+            float lineX = ((float)pinnedDay / displayMaxDays) * w;
+            
+            p2D.strokeColor = new Color(1f, 0.8f, 0.2f, 1f); // Bright Gold
+            p2D.lineWidth = 2f;
+            p2D.BeginPath();
+            p2D.MoveTo(new Vector2(lineX, 0));
+            p2D.LineTo(new Vector2(lineX, h));
+            p2D.Stroke();
+
+            // Draw Flag Triangle
+            p2D.fillColor = new Color(1f, 0.8f, 0.2f, 1f);
+            p2D.BeginPath();
+            p2D.MoveTo(new Vector2(lineX - 6, 0));
+            p2D.LineTo(new Vector2(lineX + 6, 0));
+            p2D.LineTo(new Vector2(lineX, 8));
+            p2D.ClosePath();
+            p2D.Fill();
+        }
+        // Draw the normal white hover caret only if not pinned
+        else if (isHovering && hoveredDay >= 0 && hoveredDay <= maxScrubableDay)
+        {
+            var p2D = ctx.painter2D;
+            float lineX = ((float)hoveredDay / displayMaxDays) * w;
+            p2D.strokeColor = new Color(1f, 1f, 1f, 0.5f); 
+            p2D.lineWidth = 1.5f;
+            p2D.BeginPath();
+            p2D.MoveTo(new Vector2(lineX, 0));
+            p2D.LineTo(new Vector2(lineX, h));
+            p2D.Stroke();
+        }
     }
 
     void DrawLine(MeshGenerationContext ctx, List<Vector3> data, Color color, float width, float height)
@@ -166,7 +307,6 @@ public class EpidemicBarGraph : VisualElement
     private VisualElement CreateVerticalBar(Color c) { var wrapper = new VisualElement { style = { flexGrow = 1, justifyContent = Justify.FlexEnd, marginLeft = 2, marginRight = 2 } }; var bar = new VisualElement { style = { height = Length.Percent(2), backgroundColor = c, borderTopLeftRadius = 2, borderTopRightRadius = 2 } }; wrapper.Add(bar); return bar; }
     private Label CreateLabel(string txt) { return new Label(txt) { style = { flexGrow = 1, color = Color.white, fontSize = 9, unityFontStyleAndWeight = FontStyle.Bold, unityTextAlign = TextAnchor.MiddleCenter } }; }
 
-    // --- NEW: Instantly drops all bars back to zero ---
     public void ClearData()
     {
         sBar.style.height = Length.Percent(2f); sLbl.text = "0";
@@ -226,6 +366,14 @@ public class ActiveCasesGraph : VisualElement
     {
         casesData.Clear();
         displayMaxDays = 30;
+        graphArea.MarkDirtyRepaint();
+    }
+
+    public void TruncateData(int branchDay)
+    {
+        float exactBranchTime = branchDay - 1f; 
+        casesData.RemoveAll(v => v.x > exactBranchTime);
+        displayMaxDays = Mathf.Max(branchDay, 30);
         graphArea.MarkDirtyRepaint();
     }
 
@@ -297,13 +445,9 @@ public class SimulationStatsDashboard : VisualElement
         Add(CreateItem("Vaccinated:", out vaccinatedLabel, new Color(1f, 0.9f, 0.2f, 1f)));
     }
 
-    // --- NEW: Resets all text elements to zero ---
     public void ClearData()
     {
-        dayLabel.text = "0";
-        timeLabel.text = "00:00"; 
-        speedLabel.text = "0x";
-        
+        dayLabel.text = "0"; timeLabel.text = "00:00"; speedLabel.text = "0x";
         aliveLabel.text = "0"; deadLabel.text = "0";
         susceptibleLabel.text = "0"; exposedLabel.text = "0";
         infectedLabel.text = "0"; recoveredLabel.text = "0"; vaccinatedLabel.text = "0";
@@ -314,7 +458,6 @@ public class SimulationStatsDashboard : VisualElement
     {
         dayLabel.text = day.ToString();
         timeLabel.text = $"{Mathf.FloorToInt(time):00}:{Mathf.FloorToInt((time - Mathf.FloorToInt(time)) * 60f):00}"; 
-        
         speedLabel.text = $"{speed}x";
         aliveLabel.text = alive.ToString("N0"); deadLabel.text = dead.ToString("N0");
         susceptibleLabel.text = s.ToString("N0"); exposedLabel.text = e.ToString("N0");
@@ -338,214 +481,154 @@ public class VirusVaccineControls : VisualElement
 
     public VirusVaccineControls()
     {
-        style.flexGrow = 1;
-        style.paddingTop = 10; style.paddingBottom = 10;
-        style.flexDirection = FlexDirection.Column;
+        style.flexGrow = 1; style.paddingTop = 10; style.paddingBottom = 10; style.flexDirection = FlexDirection.Column;
 
         var scrollArea = new ScrollView(ScrollViewMode.Vertical);
-        scrollArea.style.flexGrow = 1;
-        scrollArea.contentContainer.style.paddingRight = 10; 
-        
+        scrollArea.style.flexGrow = 1; scrollArea.contentContainer.style.paddingRight = 10; 
         StyleCustomScrollbar(scrollArea);
 
         var mainTitle = new Label("INTERVENTION CONTROLS") { style = { color = Color.white, fontSize = 13, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 12, unityTextAlign = TextAnchor.MiddleCenter } };
         scrollArea.Add(mainTitle);
 
-        var virusFoldout = new Foldout { text = "Virus Mutation Parameters" };
-        virusFoldout.AddToClassList("custom-foldout"); 
-        
+        var virusFoldout = new Foldout { text = "Virus Mutation Parameters" }; virusFoldout.AddToClassList("custom-foldout"); 
         var virusContent = new VisualElement(); 
-        
-        var vStrainField = new IntegerField("New Strain Level:") { value = 2 };
-        vStrainField.AddToClassList("inspector-field");
-        virusContent.Add(vStrainField);
+        var vStrainField = new IntegerField("New Strain Level:") { value = 2 }; vStrainField.AddToClassList("inspector-field"); virusContent.Add(vStrainField);
 
         Slider vEvasionSlider, vTransSlider, vFatalitySlider;
         virusContent.Add(CreateSliderRow("Immunity Evasion:", 0f, 1f, 0.30f, out vEvasionSlider));
         virusContent.Add(CreateSliderRow("Infection Rate:", 0.01f, 1.0f, 0.40f, out vTransSlider));
         
-        var vIncubationField = new FloatField("Incubation (Days):") { value = 5f };
-        vIncubationField.AddToClassList("inspector-field");
-        virusContent.Add(vIncubationField);
-        
+        var vIncubationField = new FloatField("Incubation (Days):") { value = 5f }; vIncubationField.AddToClassList("inspector-field"); virusContent.Add(vIncubationField);
         virusContent.Add(CreateSliderRow("Mortality Rate:", 0f, 1.0f, 0.02f, out vFatalitySlider));
 
-        activeStrainsContainer = CreateListBoxContainer();
-        UpdateActiveStrains(new Dictionary<int, int>()); 
-        virusContent.Add(activeStrainsContainer);
+        activeStrainsContainer = CreateListBoxContainer(); UpdateActiveStrains(new Dictionary<int, int>()); virusContent.Add(activeStrainsContainer);
 
         var mutateBtn = new Button(() => { OnMutateVirus?.Invoke(vStrainField.value, vEvasionSlider.value, vTransSlider.value, vIncubationField.value, vFatalitySlider.value); }) { text = "TRIGGER MUTATION" };
-        mutateBtn.AddToClassList("action-button"); 
-        mutateBtn.style.marginTop = 10; mutateBtn.style.marginBottom = 10;
-        virusContent.Add(mutateBtn);
-
+        mutateBtn.AddToClassList("action-button"); mutateBtn.style.marginTop = 10; mutateBtn.style.marginBottom = 10; virusContent.Add(mutateBtn);
         virusFoldout.Add(virusContent); scrollArea.Add(virusFoldout);
 
-        var vaccineFoldout = new Foldout { text = "Vaccine Deployment" };
-        vaccineFoldout.AddToClassList("custom-foldout"); 
-
+        var vaccineFoldout = new Foldout { text = "Vaccine Deployment" }; vaccineFoldout.AddToClassList("custom-foldout"); 
         var vaccineContent = new VisualElement(); 
         
-        var vacStrainField = new IntegerField("Vaccine Strain:") { value = 1 };
-        var vacDosesField = new IntegerField("Supply Doses:") { value = 5000 };
-        vacStrainField.AddToClassList("inspector-field"); vacDosesField.AddToClassList("inspector-field");
-        vaccineContent.Add(vacStrainField); vaccineContent.Add(vacDosesField);
+        var vacStrainField = new IntegerField("Vaccine Strain:") { value = 1 }; var vacDosesField = new IntegerField("Supply Doses:") { value = 5000 };
+        vacStrainField.AddToClassList("inspector-field"); vacDosesField.AddToClassList("inspector-field"); vaccineContent.Add(vacStrainField); vaccineContent.Add(vacDosesField);
 
         Slider vacEfficacySlider, vacAbidanceSlider;
         vaccineContent.Add(CreateSliderRow("Base Efficacy:", 0f, 1f, 0.90f, out vacEfficacySlider));
         vaccineContent.Add(CreateSliderRow("Public Abidance:", 0f, 1f, 0.75f, out vacAbidanceSlider));
 
-        activeVaccinesContainer = CreateListBoxContainer();
-        UpdateActiveVaccines(new Dictionary<int, int>()); 
-        vaccineContent.Add(activeVaccinesContainer);
+        activeVaccinesContainer = CreateListBoxContainer(); UpdateActiveVaccines(new Dictionary<int, int>()); vaccineContent.Add(activeVaccinesContainer);
 
         var deployBtn = new Button(() => { OnDeployVaccine?.Invoke(vacStrainField.value, vacDosesField.value, vacEfficacySlider.value, vacAbidanceSlider.value); }) { text = "DEPLOY WAVE" };
-        deployBtn.AddToClassList("action-button"); 
-        deployBtn.style.marginTop = 10; deployBtn.style.marginBottom = 10;
-        vaccineContent.Add(deployBtn);
-        
+        deployBtn.AddToClassList("action-button"); deployBtn.style.marginTop = 10; deployBtn.style.marginBottom = 10; vaccineContent.Add(deployBtn);
         vaccineFoldout.Add(vaccineContent); scrollArea.Add(vaccineFoldout);
         
         virusFoldout.value = true; vaccineFoldout.value = true;
-
         Add(scrollArea);
     }
 
     private void StyleCustomScrollbar(ScrollView sv)
     {
         sv.RegisterCallback<GeometryChangedEvent>(evt => {
-            var scroller = sv.verticalScroller;
-            if (scroller == null) return;
-            
-            scroller.style.width = 6;
-            scroller.style.minWidth = 6;
-            scroller.style.maxWidth = 6;
-            scroller.style.borderLeftWidth = 0;
-            scroller.style.borderRightWidth = 0;
-
-            var upBtn = scroller.Q(className: "unity-scroller__high-button");
-            if (upBtn != null) upBtn.style.display = DisplayStyle.None;
-            
-            var downBtn = scroller.Q(className: "unity-scroller__low-button");
-            if (downBtn != null) downBtn.style.display = DisplayStyle.None;
-            
-            var tracker = scroller.Q(className: "unity-base-slider__tracker");
-            if (tracker != null) {
-                tracker.style.backgroundColor = Color.clear;
-                tracker.style.borderLeftWidth = 0;
-                tracker.style.borderRightWidth = 0;
-            }
-
-            var dragger = scroller.Q(className: "unity-base-slider__dragger");
-            if (dragger != null) {
-                dragger.style.backgroundColor = new Color(0.4f, 0.4f, 0.4f, 1f);
-                dragger.style.borderTopLeftRadius = 3;
-                dragger.style.borderTopRightRadius = 3;
-                dragger.style.borderBottomLeftRadius = 3;
-                dragger.style.borderBottomRightRadius = 3;
-                dragger.style.width = 6;
-                dragger.style.left = 0; 
-                dragger.style.marginLeft = 0;
-            }
+            var scroller = sv.verticalScroller; if (scroller == null) return;
+            scroller.style.width = 6; scroller.style.minWidth = 6; scroller.style.maxWidth = 6; scroller.style.borderLeftWidth = 0; scroller.style.borderRightWidth = 0;
+            var upBtn = scroller.Q(className: "unity-scroller__high-button"); if (upBtn != null) upBtn.style.display = DisplayStyle.None;
+            var downBtn = scroller.Q(className: "unity-scroller__low-button"); if (downBtn != null) downBtn.style.display = DisplayStyle.None;
+            var tracker = scroller.Q(className: "unity-base-slider__tracker"); if (tracker != null) { tracker.style.backgroundColor = Color.clear; tracker.style.borderLeftWidth = 0; tracker.style.borderRightWidth = 0; }
+            var dragger = scroller.Q(className: "unity-base-slider__dragger"); if (dragger != null) { dragger.style.backgroundColor = new Color(0.4f, 0.4f, 0.4f, 1f); dragger.style.borderTopLeftRadius = 3; dragger.style.borderTopRightRadius = 3; dragger.style.borderBottomLeftRadius = 3; dragger.style.borderBottomRightRadius = 3; dragger.style.width = 6; dragger.style.left = 0; dragger.style.marginLeft = 0; }
         });
     }
 
-    private VisualElement CreateListBoxContainer()
-    {
-        return new VisualElement { 
-            style = { 
-                backgroundColor = new Color(0.12f, 0.12f, 0.12f, 1f),
-                borderTopWidth = 1, borderBottomWidth = 1, borderLeftWidth = 1, borderRightWidth = 1,
-                borderTopColor = new Color(0.3f, 0.3f, 0.3f), borderBottomColor = new Color(0.3f, 0.3f, 0.3f),
-                borderLeftColor = new Color(0.3f, 0.3f, 0.3f), borderRightColor = new Color(0.3f, 0.3f, 0.3f),
-                borderTopLeftRadius = 4, borderTopRightRadius = 4, borderBottomLeftRadius = 4, borderBottomRightRadius = 4,
-                paddingTop = 6, paddingBottom = 6, paddingLeft = 6, paddingRight = 6,
-                marginTop = 10, marginBottom = 10
-            } 
-        };
-    }
-
-    private Label CreateListTitle(string text)
-    {
-        return new Label(text) { 
-            style = { 
-                color = Color.white, 
-                fontSize = 11, 
-                unityFontStyleAndWeight = FontStyle.Bold, 
-                marginBottom = 6, 
-                borderBottomWidth = 1, 
-                borderBottomColor = new Color(0.3f, 0.3f, 0.3f), 
-                paddingBottom = 4 
-            } 
-        };
-    }
+    private VisualElement CreateListBoxContainer() { return new VisualElement { style = { backgroundColor = new Color(0.12f, 0.12f, 0.12f, 1f), borderTopWidth = 1, borderBottomWidth = 1, borderLeftWidth = 1, borderRightWidth = 1, borderTopColor = new Color(0.3f, 0.3f, 0.3f), borderBottomColor = new Color(0.3f, 0.3f, 0.3f), borderLeftColor = new Color(0.3f, 0.3f, 0.3f), borderRightColor = new Color(0.3f, 0.3f, 0.3f), borderTopLeftRadius = 4, borderTopRightRadius = 4, borderBottomLeftRadius = 4, borderBottomRightRadius = 4, paddingTop = 6, paddingBottom = 6, paddingLeft = 6, paddingRight = 6, marginTop = 10, marginBottom = 10 } }; }
+    private Label CreateListTitle(string text) { return new Label(text) { style = { color = Color.white, fontSize = 11, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 6, borderBottomWidth = 1, borderBottomColor = new Color(0.3f, 0.3f, 0.3f), paddingBottom = 4 } }; }
 
     private VisualElement CreateSliderRow(string labelText, float min, float max, float defaultVal, out Slider slider)
     {
         var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 2 } };
-        
-        slider = new Slider(labelText, min, max) { value = defaultVal, style = { flexGrow = 1 } };
-        slider.AddToClassList("inspector-field");
-        
-        var floatField = new FloatField { value = defaultVal, style = { width = 45, marginLeft = 5 } };
-        floatField.AddToClassList("inspector-field");
-
-        var s = slider;
-        var f = floatField;
-
+        slider = new Slider(labelText, min, max) { value = defaultVal, style = { flexGrow = 1 } }; slider.AddToClassList("inspector-field");
+        var floatField = new FloatField { value = defaultVal, style = { width = 45, marginLeft = 5 } }; floatField.AddToClassList("inspector-field");
+        var s = slider; var f = floatField;
         s.RegisterValueChangedCallback(evt => { f.SetValueWithoutNotify((float)System.Math.Round(evt.newValue, 3)); });
-        f.RegisterValueChangedCallback(evt => {
-            float val = Mathf.Clamp(evt.newValue, min, max);
-            if (evt.newValue != val) f.SetValueWithoutNotify(val);
-            s.SetValueWithoutNotify(val);
-        });
-
+        f.RegisterValueChangedCallback(evt => { float val = Mathf.Clamp(evt.newValue, min, max); if (evt.newValue != val) f.SetValueWithoutNotify(val); s.SetValueWithoutNotify(val); });
         row.Add(s); row.Add(f); return row;
     }
 
-    public void UpdateActiveStrains(Dictionary<int, int> strainCounts)
+    public void UpdateActiveStrains(Dictionary<int, int> strainCounts) { activeStrainsContainer.Clear(); activeStrainsContainer.Add(CreateListTitle("Active Circulating Strains")); bool hasAny = false; foreach (var kvp in strainCounts) { if (kvp.Value > 0) { var row = new Label($"• Strain v{kvp.Key}: {kvp.Value} active cases") { style = { color = new Color(0.85f, 0.85f, 0.85f), fontSize = 10, marginBottom = 2, marginLeft = 4 } }; activeStrainsContainer.Add(row); hasAny = true; } } if (!hasAny) { activeStrainsContainer.Add(new Label("No active strains.") { style = { color = new Color(0.5f, 0.5f, 0.5f), fontSize = 10, unityFontStyleAndWeight = FontStyle.Italic, marginLeft = 4 } }); } }
+    public void UpdateActiveVaccines(Dictionary<int, int> vaccineCounts) { activeVaccinesContainer.Clear(); activeVaccinesContainer.Add(CreateListTitle("Current Vaccines")); bool hasAny = false; foreach (var kvp in vaccineCounts) { if (kvp.Value > 0) { var row = new Label($"• Strain v{kvp.Key} Shield: {kvp.Value} protected") { style = { color = new Color(0.85f, 0.85f, 0.85f), fontSize = 10, marginBottom = 2, marginLeft = 4 } }; activeVaccinesContainer.Add(row); hasAny = true; } } if (!hasAny) { activeVaccinesContainer.Add(new Label("No deployed vaccines.") { style = { color = new Color(0.5f, 0.5f, 0.5f), fontSize = 10, unityFontStyleAndWeight = FontStyle.Italic, marginLeft = 4 } }); } }
+}
+
+// ==========================================
+// WIDGET 6: Year-End Report Popup
+// ==========================================
+public class YearEndReportPopup : VisualElement
+{
+    public new class UxmlFactory : UxmlFactory<YearEndReportPopup, UxmlTraits> { }
+
+    private Label titleLbl, statsLbl;
+    private TextField codeBox;
+    public Button copyBtn, nextYearBtn;
+
+    public YearEndReportPopup()
     {
-        activeStrainsContainer.Clear();
-        activeStrainsContainer.Add(CreateListTitle("Active Circulating Strains"));
+        style.position = Position.Absolute;
+        style.top = 0; style.bottom = 0; style.left = 0; style.right = 0;
+        style.backgroundColor = new Color(0f, 0f, 0f, 0.85f);
+        style.alignItems = Align.Center;
+        style.justifyContent = Justify.Center;
+        style.display = DisplayStyle.None; 
 
-        bool hasAny = false;
-        foreach (var kvp in strainCounts) {
-            if (kvp.Value > 0) {
-                var row = new Label($"• Strain v{kvp.Key}: {kvp.Value} active cases") { 
-                    style = { color = new Color(0.85f, 0.85f, 0.85f), fontSize = 10, marginBottom = 2, marginLeft = 4 } 
-                };
-                activeStrainsContainer.Add(row);
-                hasAny = true;
-            }
-        }
+        var panel = new VisualElement { 
+            style = { 
+                backgroundColor = new Color(0.15f, 0.15f, 0.15f, 1f),
+                paddingTop = 20, paddingBottom = 20, paddingLeft = 30, paddingRight = 30,
+                borderTopLeftRadius = 8, borderTopRightRadius = 8, borderBottomLeftRadius = 8, borderBottomRightRadius = 8,
+                borderTopWidth = 1, borderBottomWidth = 1, borderLeftWidth = 1, borderRightWidth = 1,
+                borderTopColor = new Color(0.3f, 0.3f, 0.3f), borderBottomColor = new Color(0.3f, 0.3f, 0.3f),
+                borderLeftColor = new Color(0.3f, 0.3f, 0.3f), borderRightColor = new Color(0.3f, 0.3f, 0.3f),
+                width = 400
+            } 
+        };
 
-        if (!hasAny) {
-            activeStrainsContainer.Add(new Label("No active strains.") { 
-                style = { color = new Color(0.5f, 0.5f, 0.5f), fontSize = 10, unityFontStyleAndWeight = FontStyle.Italic, marginLeft = 4 } 
-            });
-        }
+        titleLbl = new Label("YEAR 1 COMPLETE") { style = { color = Color.white, fontSize = 20, unityFontStyleAndWeight = FontStyle.Bold, unityTextAlign = TextAnchor.MiddleCenter, marginBottom = 15 } };
+        panel.Add(titleLbl);
+
+        statsLbl = new Label("Total Dead: 0\nRemaining Susceptible: 0") { style = { color = new Color(0.8f, 0.8f, 0.8f), fontSize = 14, unityTextAlign = TextAnchor.MiddleCenter, marginBottom = 20 } };
+        panel.Add(statsLbl);
+
+        var shareLbl = new Label("Share Scenario Code:") { style = { color = Color.white, fontSize = 12, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 5 } };
+        panel.Add(shareLbl);
+
+        codeBox = new TextField { isReadOnly = true, style = { marginBottom = 10 } };
+        codeBox.AddToClassList("inspector-field");
+        panel.Add(codeBox);
+
+        copyBtn = new Button { text = "COPY TO CLIPBOARD" };
+        copyBtn.AddToClassList("action-button");
+        copyBtn.style.backgroundColor = new Color(0.2f, 0.6f, 0.2f);
+        copyBtn.clicked += () => { GUIUtility.systemCopyBuffer = codeBox.value; copyBtn.text = "COPIED!"; };
+        panel.Add(copyBtn);
+
+        var spacer = new VisualElement { style = { height = 20 } };
+        panel.Add(spacer);
+
+        nextYearBtn = new Button { text = "ADVANCE TO NEXT YEAR" };
+        nextYearBtn.AddToClassList("action-button");
+        panel.Add(nextYearBtn);
+
+        Add(panel);
     }
 
-    public void UpdateActiveVaccines(Dictionary<int, int> vaccineCounts)
+    public void ShowReport(int year, int totalDead, int totalSusceptible, string saveCode)
     {
-        activeVaccinesContainer.Clear();
-        activeVaccinesContainer.Add(CreateListTitle("Current Vaccines"));
+        titleLbl.text = $"YEAR {year} COMPLETE";
+        statsLbl.text = $"Total Casualties: {totalDead:N0}\nRemaining Susceptible: {totalSusceptible:N0}";
+        codeBox.value = saveCode;
+        copyBtn.text = "COPY TO CLIPBOARD";
+        style.display = DisplayStyle.Flex;
+    }
 
-        bool hasAny = false;
-        foreach (var kvp in vaccineCounts) {
-            if (kvp.Value > 0) {
-                var row = new Label($"• Strain v{kvp.Key} Shield: {kvp.Value} protected") { 
-                    style = { color = new Color(0.85f, 0.85f, 0.85f), fontSize = 10, marginBottom = 2, marginLeft = 4 } 
-                };
-                activeVaccinesContainer.Add(row);
-                hasAny = true;
-            }
-        }
-
-        if (!hasAny) {
-            activeVaccinesContainer.Add(new Label("No deployed vaccines.") { 
-                style = { color = new Color(0.5f, 0.5f, 0.5f), fontSize = 10, unityFontStyleAndWeight = FontStyle.Italic, marginLeft = 4 } 
-            });
-        }
+    public void HideReport()
+    {
+        style.display = DisplayStyle.None;
     }
 }
