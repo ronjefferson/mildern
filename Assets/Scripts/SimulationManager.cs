@@ -5,26 +5,56 @@ using Unity.Collections;
 using Unity.Mathematics;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
+using System;
 using Random = UnityEngine.Random;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
+public struct HistoricalAgentState
+{
+    public float3 position;
+    public float3 targetPosition;
+    public AgentScheduleState scheduleState;
+    public HealthState healthState;
+    public int activeStrainID;
+    public int protectedStrainID;
+    public float immunityTimer;         
+    public uint historicalStrainMask;   
+}
 
 public class SimulationManager : MonoBehaviour
 {
     public static SimulationManager Instance;
+
+    // --- TOOLTIP DATA STRUCTURE ---
+    private struct TooltipData {
+        public string purpose; public string input; public string range;
+        public TooltipData(string p, string i, string r) { purpose = p; input = i; range = r; }
+    }
+    private Dictionary<string, TooltipData> tooltips;
+    private VisualElement tooltipWindow;
+    private Label ttTitle, ttPurpose, ttInput, ttRange;
+    // ------------------------------
+
+    [Header("UI Icons (Texture2D)")]
+    public Texture2D playIcon;
+    public Texture2D pauseIcon;
+    public Texture2D fastForwardIcon;
 
     [Header("UI Document")]
     public UIDocument dashboardDocument;
     private VisualElement setupContainer, runtimeContainer;
     private TextField popInput, infectedInput, radiusInput, transRateInput, recoveryInput, mortalityInput;
     
-    // Baseline UI Fields mapping
     private FloatField immDurField, histRecField, hospTransField;
     private IntegerField bedsField;
     private Toggle commToggle;
     private Slider natImmSlider, histImmSlider, lockAbidSlider;
 
-    private Button startSimButton, pauseButton, playButton, fastButton, resetButton;
-    
-    // --- FIX: setBaselineBtn has been completely removed ---
+    private Button startSimButton, playButton, fastButton, resetButton, exportBtn, loadSetupBtn;
     private Button cancelAttemptBtn; 
     
     private Button tabSetupBtn, tabRuntimeBtn; 
@@ -36,12 +66,15 @@ public class SimulationManager : MonoBehaviour
     private SimulationStatsDashboard simulationStats; 
     private VirusVaccineControls virusVaccineControls; 
     
-    // Report Card UI
-    private YearEndReportPopup reportPopup;
+    private Label headerDayLabel, headerTimeLabel, headerStatusLabel, headerSpeedLabel;
+    
+    private LoadingOverlay loadingOverlay;
     private SimSaveData pendingImportData = null; 
-    private int currentYear = 1;
 
-    private float[] fastSpeeds = { 2f, 10f, 100f }; private int currentFastIndex = 0;
+    private bool isPaused = true;
+    
+    private float[] fastSpeeds = { 1f, 10f, 100f }; 
+    private int currentFastIndex = 0;
 
     private Dictionary<int, SimulationAgent[]> timelineHistory = new Dictionary<int, SimulationAgent[]>();
     private Dictionary<int, SimulationAgent[]> baselineHistory = new Dictionary<int, SimulationAgent[]>(); 
@@ -104,20 +137,71 @@ public class SimulationManager : MonoBehaviour
     private float epicAccumulator = 0f; private const float epicTickInterval = 1f;
     private float fixedTickAccumulator = 0f; private float fixedTickInterval = 0.05f; 
 
-    void Awake() { Instance = this; }
+    void Awake() 
+    { 
+        Instance = this; 
+        InitializeTooltips();
+    }
+    
     void Start() { SetupUI(); }
+
+    private void InitializeTooltips()
+    {
+        tooltips = new Dictionary<string, TooltipData> {
+            // Setup Parameters
+            {"Population Size", new TooltipData("The total number of agents spawned in the city.", "Integer (e.g., 10000)", "100 - 30,000 (Warning: High numbers require strong CPU)")},
+            {"Initial Infected", new TooltipData("The number of 'Patient Zeros' at Day 0.", "Integer (e.g., 10)", "1 to Population Size")},
+            {"Infection Radius", new TooltipData("The physical distance a virus can jump between agents.", "Float (1.0 = 1 meter)", "0.1 (Contact) to 5.0 (Airborne)")},
+            {"Transmission Rate", new TooltipData("The probability of infection per tick when inside the radius.", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
+            {"Recovery Time", new TooltipData("How many in-game days an agent remains infectious before recovering or dying.", "Float (Days)", "1.0 to 30.0+")},
+            {"Mortality Rate", new TooltipData("The percentage of infected agents that will not survive the illness.", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
+            {"Immunity Duration (Days)", new TooltipData("How many days an agent is protected after vaccination.", "Float (Days)", "1.0 to 365.0+")},
+            {"Natural Immunity Efficacy", new TooltipData("The base protection an agent gets after recovering from a virus naturally.", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
+            {"Reinfection Resistance", new TooltipData("The baseline protection against mutated strains if the agent has a historical immunity record.", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
+            {"Lockdown Abidance", new TooltipData("Percentage of population obeying lockdown rules.", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
+            {"Reinfection Recovery Boost", new TooltipData("Speed multiplier for recovering from reinfections.", "Float (Multiplier)", "1.0 (Normal) to 5.0 (Fast)")},
+            {"Hospital Trans. Multiplier", new TooltipData("Adjusts transmission risk inside hospital buildings.", "Float (Multiplier)", "0.0 (Safe) to 1.0 (Normal)")},
+            {"Beds Per Hospital", new TooltipData("Maximum capacity of patients per healthcare facility.", "Integer", "10 to 500+")},
+            {"Vaccines at Commercial", new TooltipData("Allows pharmacies/commercial buildings to distribute vaccines.", "Toggle (True/False)", "N/A")},
+            
+            // Runtime Parameters
+            {"Reset", new TooltipData("Deletes the current simulation data, clears the RAM, and returns to the Setup tab.", "Action Button", "N/A")},
+            {"Play / Pause", new TooltipData("Freezes or resumes the simulation mathematical calculations. You can still move the camera while paused.", "Action Button", "N/A")},
+            {"Fast Forward", new TooltipData("Cycles through the simulation calculation speeds.", "Action Button", "1x, 10x, 100x")},
+            {"Export", new TooltipData("Saves the current timeline and simulation parameters to your hard drive so you can load it later.", "Action Button", "N/A")},
+            {"Show Building Colors", new TooltipData("Visually color-codes the 3D buildings based on their type (Residential, Commercial, Healthcare).", "Checkbox (True/False)", "N/A")},
+            {"Toggle Social Distancing", new TooltipData("Instantly forces all agents to attempt to stay further apart, effectively reducing the Infection Radius and Transmission Rate by a set multiplier.", "Checkbox (True/False)", "N/A")},
+            {"Toggle Lockdown", new TooltipData("Triggers a city-wide mandate. A percentage of agents (based on Lockdown Abidance) will immediately return home and stay there.", "Checkbox (True/False)", "N/A")},
+
+            // Virus Parameters
+            {"New Strain Level", new TooltipData("The classification ID of the newly mutated virus.", "Integer (e.g., 2)", "Must be higher than current strain")},
+            {"Immunity Evasion", new TooltipData("Chance for the mutated virus to bypass existing immunity (recovered or vaccinated).", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
+            {"Infection Rate", new TooltipData("The base transmission probability for this specific mutated strain.", "Float (Percentage)", "0.01 (1%) to 1.0 (100%)")},
+            {"Incubation (Days)", new TooltipData("Days an agent remains asymptomatic but infectious before showing symptoms/recovering.", "Float (Days)", "1.0 to 14.0+")},
+            {"Trigger Mutation", new TooltipData("Immediately unleashes the mutated strain into the existing infected population.", "Action Button", "N/A")},
+            
+            // Vaccine Parameters
+            {"Vaccine Strain", new TooltipData("The specific virus strain ID this new vaccine wave protects against.", "Integer", "Matches active strain ID")},
+            {"Supply Doses", new TooltipData("Total number of vaccines available for distribution across all clinics.", "Integer", "100 to Population Size")},
+            {"Base Efficacy", new TooltipData("The percentage chance this vaccine successfully grants immunity.", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
+            {"Public Abidance", new TooltipData("The percentage of the susceptible population willing to go get vaccinated.", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
+            {"Deploy Wave", new TooltipData("Immediately distributes the vaccine supply to hospitals and commercial pharmacies.", "Action Button", "N/A")}
+        };
+    }
 
     void SetupUI()
     {
         if (dashboardDocument != null && dashboardDocument.rootVisualElement != null)
         {
             var root = dashboardDocument.rootVisualElement;
+            
+            CreateTooltipUI(root);
+
             setupContainer = root.Q<VisualElement>("SetupContainer"); runtimeContainer = root.Q<VisualElement>("RuntimeContainer");
             
             if (setupContainer != null) {
                 var setupScroll = new ScrollView(ScrollViewMode.Vertical);
-                setupScroll.style.flexGrow = 1;
-                setupScroll.contentContainer.style.paddingRight = 10; 
+                setupScroll.style.flexGrow = 1; setupScroll.contentContainer.style.paddingRight = 10; 
                 StyleCustomScrollbar(setupScroll);
                 var children = new List<VisualElement>(setupContainer.Children());
                 foreach (var c in children) setupScroll.Add(c);
@@ -125,275 +209,367 @@ public class SimulationManager : MonoBehaviour
             }
             
             tabSetupBtn = root.Q<Button>("TabSetupButton"); tabRuntimeBtn = root.Q<Button>("TabRuntimeButton");
-            if (tabSetupBtn != null) tabSetupBtn.clicked += () => SwitchTab(true);
-            if (tabRuntimeBtn != null) tabRuntimeBtn.clicked += () => SwitchTab(false);
+            if (tabSetupBtn != null) { tabSetupBtn.clicked += () => SwitchTab(true); if (tabSetupBtn.parent != null) tabSetupBtn.parent.style.flexShrink = 0; }
+            if (tabRuntimeBtn != null) { tabRuntimeBtn.clicked += () => SwitchTab(false); }
             
             popInput = root.Q<TextField>("PopInput"); infectedInput = root.Q<TextField>("InfectedInput"); radiusInput = root.Q<TextField>("RadiusInput"); 
             transRateInput = root.Q<TextField>("TransRateInput"); recoveryInput = root.Q<TextField>("RecoveryInput"); mortalityInput = root.Q<TextField>("MortalityInput");
-
             if (setupContainer != null) { var allTextFields = setupContainer.Query<TextField>().ToList(); foreach (var field in allTextFields) field.AddToClassList("inspector-field"); }
             startSimButton = root.Q<Button>("StartSimButton");
             
             if (popInput != null) popInput.value = populationSize.ToString(); if (infectedInput != null) infectedInput.value = initialInfected.ToString(); if (radiusInput != null) radiusInput.value = infectionRadius.ToString(); 
             if (transRateInput != null) transRateInput.value = transmissionRate.ToString(); if (recoveryInput != null) recoveryInput.value = recoveryTime.ToString(); if (mortalityInput != null) mortalityInput.value = mortalityRate.ToString();
             
+            InjectInfoButtonToUXML(popInput, "Population Size");
+            InjectInfoButtonToUXML(infectedInput, "Initial Infected");
+            InjectInfoButtonToUXML(radiusInput, "Infection Radius");
+            InjectInfoButtonToUXML(transRateInput, "Transmission Rate");
+            InjectInfoButtonToUXML(recoveryInput, "Recovery Time");
+            InjectInfoButtonToUXML(mortalityInput, "Mortality Rate");
+
             if (setupContainer != null)
             {
                 var advancedBox = new VisualElement { style = { marginTop = 15, paddingBottom = 10, marginBottom = 10, borderBottomWidth = 1, borderBottomColor = new Color(0.3f, 0.3f, 0.3f) } };
-
-                immDurField = new FloatField("Immunity Duration (Days):") { value = immunityDurationDays };
-                immDurField.AddToClassList("inspector-field"); immDurField.RegisterValueChangedCallback(evt => immunityDurationDays = evt.newValue);
-                advancedBox.Add(immDurField);
-
+                
+                immDurField = new FloatField("Immunity Duration (Days):") { value = immunityDurationDays }; immDurField.AddToClassList("inspector-field"); immDurField.RegisterValueChangedCallback(evt => immunityDurationDays = evt.newValue); 
+                advancedBox.Add(WrapWithInfoButton(immDurField, "Immunity Duration (Days)"));
+                
                 advancedBox.Add(CreateSliderRow("Natural Immunity Efficacy:", 0f, 1f, naturalImmunityEfficacy, out natImmSlider, val => naturalImmunityEfficacy = val));
                 advancedBox.Add(CreateSliderRow("Reinfection Resistance:", 0f, 1f, historicalImmunityEfficacy, out histImmSlider, val => historicalImmunityEfficacy = val));
                 advancedBox.Add(CreateSliderRow("Lockdown Abidance:", 0f, 1f, lockdownAbidance, out lockAbidSlider, val => lockdownAbidance = val));
+                
+                histRecField = new FloatField("Reinfection Recovery Boost:") { value = historicalRecoveryMultiplier }; histRecField.AddToClassList("inspector-field"); histRecField.RegisterValueChangedCallback(evt => historicalRecoveryMultiplier = evt.newValue); 
+                advancedBox.Add(WrapWithInfoButton(histRecField, "Reinfection Recovery Boost"));
+                
+                hospTransField = new FloatField("Hospital Trans. Multiplier:") { value = hospitalTransmissionMultiplier }; hospTransField.AddToClassList("inspector-field"); hospTransField.RegisterValueChangedCallback(evt => hospitalTransmissionMultiplier = evt.newValue); 
+                advancedBox.Add(WrapWithInfoButton(hospTransField, "Hospital Trans. Multiplier"));
+                
+                bedsField = new IntegerField("Beds Per Hospital:") { value = hospitalBedsPerFacility }; bedsField.AddToClassList("inspector-field"); bedsField.RegisterValueChangedCallback(evt => hospitalBedsPerFacility = evt.newValue); 
+                advancedBox.Add(WrapWithInfoButton(bedsField, "Beds Per Hospital"));
+                
+                commToggle = new Toggle("Vaccines at Commercial:") { value = distributeToCommercial }; 
+                commToggle.AddToClassList("custom-unity-toggle"); // Uses new CSS styling
+                commToggle.RegisterValueChangedCallback(evt => distributeToCommercial = evt.newValue); 
+                advancedBox.Add(WrapWithInfoButton(commToggle, "Vaccines at Commercial"));
 
-                histRecField = new FloatField("Reinfection Recovery Boost:") { value = historicalRecoveryMultiplier };
-                histRecField.AddToClassList("inspector-field"); histRecField.RegisterValueChangedCallback(evt => historicalRecoveryMultiplier = evt.newValue);
-                advancedBox.Add(histRecField);
-
-                hospTransField = new FloatField("Hospital Trans. Multiplier:") { value = hospitalTransmissionMultiplier };
-                hospTransField.AddToClassList("inspector-field"); hospTransField.RegisterValueChangedCallback(evt => hospitalTransmissionMultiplier = evt.newValue);
-                advancedBox.Add(hospTransField);
-
-                bedsField = new IntegerField("Beds Per Hospital:") { value = hospitalBedsPerFacility };
-                bedsField.AddToClassList("inspector-field"); bedsField.RegisterValueChangedCallback(evt => hospitalBedsPerFacility = evt.newValue);
-                advancedBox.Add(bedsField);
-
-                commToggle = new Toggle("Vaccines at Commercial:") { value = distributeToCommercial };
-                commToggle.AddToClassList("inspector-toggle"); commToggle.RegisterValueChangedCallback(evt => distributeToCommercial = evt.newValue);
-                advancedBox.Add(commToggle);
-
-                if (startSimButton != null && startSimButton.parent != null) startSimButton.parent.Insert(startSimButton.parent.IndexOf(startSimButton), advancedBox);
-                else setupContainer.Add(advancedBox);
+                if (startSimButton != null && startSimButton.parent != null) startSimButton.parent.Insert(startSimButton.parent.IndexOf(startSimButton), advancedBox); else setupContainer.Add(advancedBox);
 
                 var importBox = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 20, paddingTop = 15, borderTopWidth = 1, borderTopColor = new Color(0.3f, 0.3f, 0.3f) } };
-                var importField = new TextField("Import Setup Code:") { style = { flexGrow = 1 } };
-                importField.AddToClassList("inspector-field");
-                var importBtn = new Button(() => ApplyImportCode(importField.value)) { text = "LOAD" };
-                importBtn.AddToClassList("action-button");
-                importBox.Add(importField); importBox.Add(importBtn);
                 
-                if (startSimButton != null && startSimButton.parent != null) startSimButton.parent.Add(importBox);
-                else setupContainer.Add(importBox);
+                loadSetupBtn = new Button { text = "LOAD SAVE FILE" };
+                loadSetupBtn.AddToClassList("action-button"); loadSetupBtn.style.flexGrow = 1; loadSetupBtn.clicked += PromptLoadFile;
+                importBox.Add(loadSetupBtn);
+                if (startSimButton != null && startSimButton.parent != null) startSimButton.parent.Add(importBox); else setupContainer.Add(importBox);
             }
 
-            pauseButton = root.Q<Button>("PauseButton"); 
-            playButton = root.Q<Button>("PlayButton"); 
-            fastButton = root.Q<Button>("FastButton");
-            resetButton = root.Q<Button>("ResetButton");
+            var runtimeHeader = new VisualElement { style = { flexDirection = FlexDirection.Column, flexShrink = 0, backgroundColor = new Color(0.12f, 0.12f, 0.12f, 1f), paddingTop = 10, paddingBottom = 10, paddingLeft = 15, paddingRight = 15, borderBottomWidth = 1, borderBottomColor = new Color(0.3f, 0.3f, 0.3f), marginBottom = 10 } };
             
-            // --- FIX: Only keeping Cancel Attempt Button ---
-            cancelAttemptBtn = root.Q<Button>("CancelAttemptButton");
+            var overviewTitle = new Label("RUNTIME OVERVIEW") { style = { color = Color.white, fontSize = 12, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 8, unityTextAlign = TextAnchor.MiddleLeft } };
+            runtimeHeader.Add(overviewTitle);
 
-            if (pauseButton != null) { pauseButton.AddToClassList("action-button"); }
-            if (playButton != null)  { playButton.AddToClassList("action-button"); }
-            if (fastButton != null)  { fastButton.AddToClassList("action-button"); }
+            headerDayLabel = new Label("DAY: 0") { style = { color = Color.white, fontSize = 11, marginBottom = 4 } };
+            headerTimeLabel = new Label("TIME: 00:00") { style = { color = Color.white, fontSize = 11, marginBottom = 4 } };
+            headerStatusLabel = new Label("STATUS: PAUSED") { style = { color = new Color(1f, 0.6f, 0f, 1f), fontSize = 11, marginBottom = 4 } };
+            headerSpeedLabel = new Label("SPEED: 1x") { style = { color = new Color(0.8f, 0.8f, 0.8f, 1f), fontSize = 11 } };
+            runtimeHeader.Add(headerDayLabel); runtimeHeader.Add(headerTimeLabel); runtimeHeader.Add(headerStatusLabel); runtimeHeader.Add(headerSpeedLabel);
+            if (runtimeContainer != null) { runtimeContainer.style.justifyContent = Justify.FlexStart; runtimeContainer.style.flexShrink = 1; runtimeContainer.style.minHeight = 0; runtimeContainer.Insert(0, runtimeHeader); }
 
-            if (cancelAttemptBtn != null) { cancelAttemptBtn.AddToClassList("action-button"); cancelAttemptBtn.clicked += CancelAttempt; }
+            playButton = root.Q<Button>("PlayButton"); fastButton = root.Q<Button>("FastButton"); resetButton = root.Q<Button>("ResetButton"); exportBtn = root.Q<Button>("ExportButton"); cancelAttemptBtn = root.Q<Button>("CancelAttemptButton");
+            
+            if (playButton != null && playButton.parent != null) { 
+                playButton.parent.style.flexShrink = 0; 
+                playButton.parent.style.justifyContent = Justify.Center; 
+                
+                var runtimeControlsTitle = new Label("RUNTIME CONTROLS") { style = { color = Color.white, fontSize = 12, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 8, marginTop = 8, paddingLeft = 15, unityTextAlign = TextAnchor.MiddleLeft } };
+                playButton.parent.parent.Insert(playButton.parent.parent.IndexOf(playButton.parent), runtimeControlsTitle);
+            }
+
+            float standardWidth = 75f; float standardHeight = 36f; float standardPadding = 8f; 
+            if (resetButton != null) { resetButton.style.backgroundImage = null; resetButton.AddToClassList("action-button"); resetButton.style.width = standardWidth; resetButton.style.height = standardHeight; resetButton.clicked += ResetSimulation; }
+            if (exportBtn != null) { exportBtn.style.backgroundImage = null; exportBtn.AddToClassList("action-button"); exportBtn.style.width = standardWidth; exportBtn.style.height = standardHeight; exportBtn.clicked += PromptSaveFile; }
+            if (playButton != null) { StyleIconButton(playButton, playIcon, standardWidth, standardHeight, standardPadding); playButton.clicked += TogglePlayPause; }
+            if (fastButton != null) { StyleIconButton(fastButton, fastForwardIcon, standardWidth, standardHeight, standardPadding); fastButton.clicked += CycleSpeed; }
+            if (cancelAttemptBtn != null) { cancelAttemptBtn.text = "CANCEL ATTEMPT"; cancelAttemptBtn.style.backgroundImage = null; cancelAttemptBtn.AddToClassList("action-button"); cancelAttemptBtn.clicked += CancelAttempt; }
             UpdateButtonVisibility();
 
-            if (resetButton != null) { resetButton.AddToClassList("action-button"); resetButton.clicked += ResetSimulation; }
-
             colorToggle = root.Q<Toggle>("ColorToggle"); socialDistanceToggle = root.Q<Toggle>("SocialDistanceToggle"); lockdownToggle = root.Q<Toggle>("LockdownToggle");
-            if (colorToggle != null) colorToggle.AddToClassList("inspector-toggle");
-            if (socialDistanceToggle != null) socialDistanceToggle.AddToClassList("inspector-toggle");
             
-            if (lockdownToggle != null) { lockdownToggle.AddToClassList("inspector-toggle"); lockdownToggle.RegisterValueChangedCallback(evt => { isLockdown = evt.newValue; }); }
+            if (lockdownToggle != null) { lockdownToggle.RegisterValueChangedCallback(evt => { isLockdown = evt.newValue; }); }
+
+            // USE CSS TO FORMAT UNITY-STYLE TOGGLES
+            if (colorToggle != null) colorToggle.AddToClassList("custom-unity-toggle");
+            if (socialDistanceToggle != null) socialDistanceToggle.AddToClassList("custom-unity-toggle");
+            if (lockdownToggle != null) lockdownToggle.AddToClassList("custom-unity-toggle");
+
+            InjectInfoButtonToUXML(colorToggle, "Show Building Colors");
+            InjectInfoButtonToUXML(socialDistanceToggle, "Toggle Social Distancing");
+            InjectInfoButtonToUXML(lockdownToggle, "Toggle Lockdown");
+
+            AttachHoverTooltip(resetButton, "Reset");
+            AttachHoverTooltip(playButton, "Play / Pause");
+            AttachHoverTooltip(fastButton, "Fast Forward");
+            AttachHoverTooltip(exportBtn, "Export");
             
             lineGraph = root.Q<EpidemicLineGraph>(); barGraph = root.Q<EpidemicBarGraph>(); activeCasesGraph = root.Q<ActiveCasesGraph>();
             simulationStats = root.Q<SimulationStatsDashboard>(); virusVaccineControls = root.Q<VirusVaccineControls>();
             
-            // --- FIX: Wire up the Left-Click Pin and Right-Click Cancel ---
-            if (lineGraph != null) { 
-                lineGraph.OnDayClicked += ScrubToHistoricalDay; 
-                lineGraph.OnCancelClicked += CancelScrubPreview; 
-            }
-            
+            if (lineGraph != null) { lineGraph.OnDayClicked += ScrubToHistoricalDay; lineGraph.OnCancelClicked += CancelScrubPreview; }
             if (virusVaccineControls != null) { virusVaccineControls.OnMutateVirus += TriggerMutationEvent; virusVaccineControls.OnDeployVaccine += TriggerVaccineWave; }
 
             if (startSimButton != null) startSimButton.clicked += () => { StartSimulationFromUI(); };
             if (colorToggle != null) colorToggle.RegisterValueChangedCallback(evt => { if (BuildingManager.Instance != null) BuildingManager.Instance.ToggleColors(evt.newValue); });
             if (socialDistanceToggle != null) socialDistanceToggle.RegisterValueChangedCallback(evt => { if (evt.newValue) { transmissionRate = baseTransmissionRate * 0.4f; infectionRadius = baseInfectionRadius * 0.6f; } else { transmissionRate = baseTransmissionRate; infectionRadius = baseInfectionRadius; } });
             
-            if (pauseButton != null) pauseButton.clicked += () => { if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = 0f; };
-            
-            if (playButton != null) playButton.clicked += () => { 
-                if (isExploringPast) { BranchTimeline(currentViewDay); isExploringPast = false; }
-                if (TimeManager.Instance != null) { TimeManager.Instance.timeMultiplier = 1f; currentFastIndex = 0; } 
-            };
-            
-            if (fastButton != null) fastButton.clicked += () => { 
-                if (isExploringPast) { BranchTimeline(currentViewDay); isExploringPast = false; }
-                if (TimeManager.Instance != null) { TimeManager.Instance.timeMultiplier = fastSpeeds[currentFastIndex]; currentFastIndex = (currentFastIndex + 1) % fastSpeeds.Length; } 
-            }; 
-            
-            reportPopup = new YearEndReportPopup();
-            root.Add(reportPopup);
-            reportPopup.nextYearBtn.clicked += AdvanceToNextYear;
-
+            loadingOverlay = new LoadingOverlay(); root.Add(loadingOverlay);
             SwitchTab(true);
         }
     }
 
-    private void ApplyImportCode(string base64)
+    private void CreateTooltipUI(VisualElement root)
     {
-        SimSaveData data = SimulationSerializer.ImportState(base64);
-        if (data == null) return; 
+        tooltipWindow = new VisualElement {
+            style = {
+                position = Position.Absolute, display = DisplayStyle.None,
+                backgroundColor = new Color(0.12f, 0.12f, 0.12f, 0.98f),
+                borderTopWidth = 1, borderBottomWidth = 1, borderLeftWidth = 1, borderRightWidth = 1,
+                borderTopColor = new Color(0.4f, 0.4f, 0.4f), borderBottomColor = new Color(0.4f, 0.4f, 0.4f), 
+                borderLeftColor = new Color(0.4f, 0.4f, 0.4f), borderRightColor = new Color(0.4f, 0.4f, 0.4f),
+                borderTopLeftRadius = 6, borderTopRightRadius = 6, borderBottomLeftRadius = 6, borderBottomRightRadius = 6,
+                paddingTop = 10, paddingBottom = 10, paddingLeft = 12, paddingRight = 12,
+                width = 280
+            }
+        };
 
-        popInput.value = data.popSize.ToString();
-        radiusInput.value = data.radius.ToString(); transRateInput.value = data.transRate.ToString();
-        recoveryInput.value = data.recTime.ToString(); mortalityInput.value = data.mortRate.ToString();
+        ttTitle = new Label() { style = { color = new Color(0.3f, 0.8f, 0.8f), fontSize = 12, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 6, borderBottomWidth = 1, borderBottomColor = new Color(0.3f, 0.3f, 0.3f), paddingBottom = 4 } };
+        ttPurpose = new Label() { enableRichText = true, style = { color = Color.white, fontSize = 11, whiteSpace = WhiteSpace.Normal, marginBottom = 5 } };
+        ttInput = new Label() { enableRichText = true, style = { color = new Color(0.8f, 0.8f, 0.8f), fontSize = 11, whiteSpace = WhiteSpace.Normal, marginBottom = 3 } };
+        ttRange = new Label() { enableRichText = true, style = { color = new Color(1f, 0.8f, 0.4f), fontSize = 11, whiteSpace = WhiteSpace.Normal } };
+
+        tooltipWindow.Add(ttTitle); tooltipWindow.Add(ttPurpose); tooltipWindow.Add(ttInput); tooltipWindow.Add(ttRange);
+        root.Add(tooltipWindow);
+    }
+
+    public bool HasTooltip(string key) {
+        return tooltips != null && tooltips.ContainsKey(key);
+    }
+
+    public void ShowTooltip(string key, VisualElement targetElement)
+    {
+        if (!tooltips.ContainsKey(key)) return;
+        var data = tooltips[key];
         
-        immDurField.value = data.immDuration; histRecField.value = data.histRecMult; hospTransField.value = data.hospTransMult; bedsField.value = data.beds; commToggle.value = data.distComm;
-        natImmSlider.value = data.natImmunity; histImmSlider.value = data.histImmunity; lockAbidSlider.value = data.lockAbidance;
+        ttTitle.text = key.ToUpper();
+        ttPurpose.text = "<b>Purpose:</b> " + data.purpose;
+        ttInput.text = "<b>Input:</b> " + data.input;
+        ttRange.text = "<b>Range:</b> " + data.range;
+
+        tooltipWindow.style.display = DisplayStyle.Flex;
+
+        var bounds = targetElement.worldBound;
+        float windowWidth = 280f;
+        float screenWidth = Screen.width;
         
-        pendingImportData = data;
-        StartSimulationFromUI();
+        float xPos = bounds.xMax + 10;
+        if (xPos + windowWidth > screenWidth && bounds.xMin - windowWidth > 0) {
+            xPos = bounds.xMin - windowWidth - 10;
+        }
+
+        tooltipWindow.style.left = xPos;
+        tooltipWindow.style.top = bounds.yMin;
     }
 
-    private void AdvanceToNextYear()
-    {
-        currentYear++;
-        reportPopup.HideReport();
-        
-        realTime = 0f; epicAccumulator = 0f; fixedTickAccumulator = 0f;
-        if (TimeManager.Instance != null) { TimeManager.Instance.timeMultiplier = 1f; TimeManager.Instance.currentHour = 0f; }
-        
-        timelineHistory.Clear(); baselineHistory.Clear(); hasGhostBaseline = false;
-        furthestRecordedDay = 0; isExploringPast = false;
-        
-        if (lineGraph != null) lineGraph.ClearData();
-        if (activeCasesGraph != null) activeCasesGraph.ClearData();
-        
-        SaveHistoricalSnapshot(0);
-        UpdateButtonVisibility();
+    public void HideTooltip() { 
+        if (tooltipWindow != null) tooltipWindow.style.display = DisplayStyle.None; 
     }
 
-    private void SaveHistoricalSnapshot(int day)
+    private void AttachHoverTooltip(VisualElement element, string key)
     {
-        SimulationAgent[] snapshot = new SimulationAgent[agents.Length];
-        agents.CopyTo(snapshot);
-        timelineHistory[day] = snapshot;
+        if (element == null || !tooltips.ContainsKey(key)) return;
+        element.RegisterCallback<PointerEnterEvent>(evt => ShowTooltip(key, element));
+        element.RegisterCallback<PointerLeaveEvent>(evt => HideTooltip());
     }
 
-    private void ScrubToHistoricalDay(int targetDay)
+    private Button CreateInfoButton(string key)
     {
-        if (!timelineHistory.ContainsKey(targetDay) && !baselineHistory.ContainsKey(targetDay)) return;
+        var btn = new Button() { text = "?" };
+        btn.style.width = 16;
+        btn.style.height = 16;
+        btn.style.borderTopLeftRadius = 8;
+        btn.style.borderTopRightRadius = 8;
+        btn.style.borderBottomLeftRadius = 8;
+        btn.style.borderBottomRightRadius = 8;
+        btn.style.backgroundColor = new Color(0.34f, 0.34f, 0.34f, 1f);  // Unity grey fill
+        btn.style.borderTopWidth = 1;
+        btn.style.borderBottomWidth = 1;
+        btn.style.borderLeftWidth = 1;
+        btn.style.borderRightWidth = 1;
+        btn.style.borderTopColor = new Color(0.14f, 0.14f, 0.14f, 1f);
+        btn.style.borderBottomColor = new Color(0.14f, 0.14f, 0.14f, 1f);
+        btn.style.borderLeftColor = new Color(0.14f, 0.14f, 0.14f, 1f);
+        btn.style.borderRightColor = new Color(0.14f, 0.14f, 0.14f, 1f);
+        btn.style.color = new Color(0.9f, 0.9f, 0.9f, 1f);
+        btn.style.fontSize = 10;
+        btn.style.unityFontStyleAndWeight = FontStyle.Bold;
+        btn.style.paddingTop = 0;
+        btn.style.paddingBottom = 0;
+        btn.style.paddingLeft = 0;
+        btn.style.paddingRight = 0;
+        btn.style.marginLeft = 5;
 
-        if (TimeManager.Instance != null) { TimeManager.Instance.timeMultiplier = 0f; TimeManager.Instance.currentHour = 0f; }
-        epicAccumulator = 0f; fixedTickAccumulator = 0f;
-
-        isExploringPast = targetDay < furthestRecordedDay; currentViewDay = targetDay;
-        
-        SimulationAgent[] snapshot = timelineHistory.ContainsKey(targetDay) ? timelineHistory[targetDay] : baselineHistory[targetDay];
-        agents.CopyFrom(snapshot);
-
-        realTime = (targetDay - 1) * realSecondsPerInGameDay; 
-        if (AgentRenderer.Instance != null) AgentRenderer.Instance.UpdateRender(agents, realTime, agentGroundOffset);
-    }
-
-    // --- FIX: The Right Click "Cancel Scrub" logic to undo a placed pin ---
-    private void CancelScrubPreview()
-    {
-        if (!isExploringPast) return;
-
-        // Snap back to the present day
-        isExploringPast = false;
-        currentViewDay = furthestRecordedDay;
-
-        // Restore agents to the exact present moment
-        SimulationAgent[] snapshot = timelineHistory[furthestRecordedDay];
-        agents.CopyFrom(snapshot);
-
-        realTime = (furthestRecordedDay - 1) * realSecondsPerInGameDay;
-        if (AgentRenderer.Instance != null) AgentRenderer.Instance.UpdateRender(agents, realTime, agentGroundOffset);
-    }
-
-    private void BranchTimeline(int branchDay)
-    {
-        if (!hasGhostBaseline) LockNewBaseline();
-        List<int> daysToDelete = timelineHistory.Keys.Where(day => day > branchDay).ToList(); foreach (var day in daysToDelete) timelineHistory.Remove(day);
-        furthestRecordedDay = branchDay; if (lineGraph != null) lineGraph.maxScrubableDay = furthestRecordedDay;
-        if (lineGraph != null) lineGraph.TruncateData(branchDay); if (activeCasesGraph != null) activeCasesGraph.TruncateData(branchDay); UpdateButtonVisibility();
-    }
-
-    private void LockNewBaseline()
-    {
-        baselineHistory = new Dictionary<int, SimulationAgent[]>(timelineHistory);
-        hasGhostBaseline = true;
-        if (lineGraph != null) lineGraph.SetGhostBaseline();
-        UpdateButtonVisibility();
-    }
-
-    // This remains the "Undo" button for a failed timeline experiment
-    private void CancelAttempt()
-    {
-        if (!hasGhostBaseline) return;
-        timelineHistory = new Dictionary<int, SimulationAgent[]>(baselineHistory); furthestRecordedDay = timelineHistory.Keys.Max();
-        isExploringPast = false; currentViewDay = furthestRecordedDay;
-        if (lineGraph != null) lineGraph.RestoreFromGhost();
-        ScrubToHistoricalDay(furthestRecordedDay); isExploringPast = false; UpdateButtonVisibility();
-    }
-
-    private void UpdateButtonVisibility()
-    {
-        // Cancel Attempt ONLY appears if a ghost baseline exists
-        if (cancelAttemptBtn != null) cancelAttemptBtn.style.display = hasGhostBaseline ? DisplayStyle.Flex : DisplayStyle.None;
-    }
-
-    private VisualElement CreateSliderRow(string labelText, float min, float max, float defaultVal, out Slider sliderReference, System.Action<float> onValueChanged)
-    {
-        var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 2 } };
-        var slider = new Slider(labelText, min, max) { value = defaultVal, style = { flexGrow = 1 } };
-        slider.AddToClassList("inspector-field");
-        sliderReference = slider;
-        var floatField = new FloatField { value = defaultVal, style = { width = 45, marginLeft = 5 } };
-        floatField.AddToClassList("inspector-field");
-        slider.RegisterValueChangedCallback(evt => { floatField.SetValueWithoutNotify((float)System.Math.Round(evt.newValue, 3)); onValueChanged(evt.newValue); });
-        floatField.RegisterValueChangedCallback(evt => { float val = Mathf.Clamp(evt.newValue, min, max); if (evt.newValue != val) floatField.SetValueWithoutNotify(val); slider.SetValueWithoutNotify(val); onValueChanged(val); });
-        row.Add(slider); row.Add(floatField); return row;
-    }
-
-    private void StyleCustomScrollbar(ScrollView sv)
-    {
-        sv.RegisterCallback<GeometryChangedEvent>(evt => {
-            var scroller = sv.verticalScroller; if (scroller == null) return;
-            scroller.style.width = 6; scroller.style.minWidth = 6; scroller.style.maxWidth = 6; scroller.style.borderLeftWidth = 0; scroller.style.borderRightWidth = 0;
-            var upBtn = scroller.Q(className: "unity-scroller__high-button"); if (upBtn != null) upBtn.style.display = DisplayStyle.None;
-            var downBtn = scroller.Q(className: "unity-scroller__low-button"); if (downBtn != null) downBtn.style.display = DisplayStyle.None;
-            var tracker = scroller.Q(className: "unity-base-slider__tracker"); if (tracker != null) { tracker.style.backgroundColor = Color.clear; tracker.style.borderLeftWidth = 0; tracker.style.borderRightWidth = 0; }
-            var dragger = scroller.Q(className: "unity-base-slider__dragger"); if (dragger != null) { dragger.style.backgroundColor = new Color(0.4f, 0.4f, 0.4f, 1f); dragger.style.borderTopLeftRadius = 3; dragger.style.borderTopRightRadius = 3; dragger.style.borderBottomLeftRadius = 3; dragger.style.borderBottomRightRadius = 3; dragger.style.width = 6; dragger.style.left = 0; dragger.style.marginLeft = 0; }
+        btn.RegisterCallback<PointerEnterEvent>(evt => {
+            btn.style.backgroundColor = new Color(0.42f, 0.42f, 0.42f, 1f);
+            ShowTooltip(key, btn);
         });
+        btn.RegisterCallback<PointerLeaveEvent>(evt => {
+            btn.style.backgroundColor = new Color(0.34f, 0.34f, 0.34f, 1f);
+            HideTooltip();
+        });
+
+        return btn;
     }
 
-    private void SwitchTab(bool showSetup)
+    private void InjectInfoButtonToUXML(VisualElement field, string key)
     {
-        if (setupContainer != null) setupContainer.style.display = showSetup ? DisplayStyle.Flex : DisplayStyle.None;
-        if (runtimeContainer != null) runtimeContainer.style.display = !showSetup ? DisplayStyle.Flex : DisplayStyle.None;
-        if (tabSetupBtn != null) { if (showSetup) tabSetupBtn.AddToClassList("tab-button--active"); else tabSetupBtn.RemoveFromClassList("tab-button--active"); }
-        if (tabRuntimeBtn != null) { if (!showSetup) tabRuntimeBtn.AddToClassList("tab-button--active"); else tabRuntimeBtn.RemoveFromClassList("tab-button--active"); }
+        if (field == null || field.parent == null) return;
+        var parent = field.parent;
+        var index = parent.IndexOf(field);
+        
+        // CRITICAL FIX: Width set to 100% so the FlexGrow pushes the button perfectly to the edge
+        var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, width = Length.Percent(100) } };
+        field.style.flexGrow = 1; 
+        
+        parent.RemoveAt(index);
+        row.Add(field);
+        if (tooltips.ContainsKey(key)) row.Add(CreateInfoButton(key));
+        parent.Insert(index, row);
     }
 
-    public void ResetSimulation()
+    private VisualElement WrapWithInfoButton(VisualElement field, string key)
     {
-        if (!initialized) return; initialized = false; currentYear = 1; pendingImportData = null;
-        if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = 0f;
-        DisposeArrays(); realTime = 0f; epicAccumulator = 0f; fixedTickAccumulator = 0f;
-        timelineHistory.Clear(); baselineHistory.Clear(); hasGhostBaseline = false; furthestRecordedDay = 0; isExploringPast = false;
-        if (lineGraph != null) lineGraph.maxScrubableDay = 0;
-        currentDeployedVaccineStrain = -1; currentVaccineEfficacy = 0f; currentVaccineAbidance = 0f; totalVaccinesAvailable = 0;
-        if (lineGraph != null) lineGraph.ClearData(); if (activeCasesGraph != null) activeCasesGraph.ClearData();
-        if (barGraph != null) barGraph.ClearData(); if (simulationStats != null) simulationStats.ClearData(); 
-        if (virusVaccineControls != null) { virusVaccineControls.UpdateActiveStrains(new Dictionary<int, int>()); virusVaccineControls.UpdateActiveVaccines(new Dictionary<int, int>()); }
-        if (reportPopup != null) reportPopup.HideReport();
-        UpdateButtonVisibility(); if (setupContainer != null) setupContainer.SetEnabled(true); SwitchTab(true);
+        // CRITICAL FIX: Width set to 100% so the FlexGrow pushes the button perfectly to the edge
+        var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, width = Length.Percent(100) } };
+        field.style.flexGrow = 1; 
+        row.Add(field);
+        if (tooltips.ContainsKey(key)) row.Add(CreateInfoButton(key));
+        return row;
     }
+    // ------------------------------------
+
+    private void StyleIconButton(Button btn, Texture2D icon, float btnWidth, float btnHeight, float iconPadding) { btn.text = ""; btn.Clear(); btn.style.backgroundImage = null; btn.AddToClassList("action-button"); btn.style.width = btnWidth; btn.style.height = btnHeight; btn.style.paddingTop = iconPadding; btn.style.paddingBottom = iconPadding; btn.style.paddingLeft = iconPadding; btn.style.paddingRight = iconPadding; var iconVisual = new VisualElement { name = "btn-icon" }; if (icon != null) iconVisual.style.backgroundImage = new StyleBackground(icon); iconVisual.style.unityBackgroundImageTintColor = Color.white; iconVisual.style.unityBackgroundScaleMode = ScaleMode.ScaleToFit; iconVisual.style.width = Length.Percent(100); iconVisual.style.height = Length.Percent(100); iconVisual.style.alignSelf = Align.Center; btn.Add(iconVisual); }
+    private void TogglePlayPause() { if (isExploringPast) { BranchTimeline(currentViewDay); isExploringPast = false; } isPaused = !isPaused; var iconEl = playButton.Q<VisualElement>("btn-icon"); if (isPaused) { if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = 0f; if (iconEl != null && playIcon != null) iconEl.style.backgroundImage = new StyleBackground(playIcon); } else { if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = fastSpeeds[currentFastIndex]; if (iconEl != null && pauseIcon != null) iconEl.style.backgroundImage = new StyleBackground(pauseIcon); } UpdateHUDDisplay(); }
+    private void CycleSpeed() { currentFastIndex = (currentFastIndex + 1) % fastSpeeds.Length; if (!isPaused && TimeManager.Instance != null) { TimeManager.Instance.timeMultiplier = fastSpeeds[currentFastIndex]; } UpdateHUDDisplay(); }
+    private void ForcePauseUI() { isPaused = true; if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = 0f; var iconEl = playButton.Q<VisualElement>("btn-icon"); if (iconEl != null && playIcon != null) iconEl.style.backgroundImage = new StyleBackground(playIcon); UpdateHUDDisplay(); }
+    private void UpdateHUDDisplay() { if (headerStatusLabel != null) { headerStatusLabel.text = isPaused ? "STATUS: PAUSED" : "STATUS: PLAYING"; headerStatusLabel.style.color = isPaused ? new Color(1f, 0.6f, 0f, 1f) : new Color(0.2f, 0.8f, 0.2f, 1f); } if (headerSpeedLabel != null) { headerSpeedLabel.text = $"SPEED: {fastSpeeds[currentFastIndex]}x"; } }
+
+    private async void PromptSaveFile() 
+    { 
+        if (!initialized) return; 
+        ForcePauseUI(); 
+        
+#if UNITY_EDITOR
+        string filePath = EditorUtility.SaveFilePanel("Save Simulation State", "", "Simulation_Day_" + furthestRecordedDay, "sim"); 
+        if (string.IsNullOrEmpty(filePath)) return; 
+        
+        loadingOverlay.Show("SAVING TIMELINE TO DISK..."); 
+        
+        int d = 0, s = 0, e = 0, inf = 0, r = 0, v = 0; 
+        for(int i = 0; i < agents.Length; i++) { 
+            if (agents[i].healthState == HealthState.Dead) d++; 
+            else if (agents[i].healthState == HealthState.Susceptible) s++; 
+            else if (agents[i].healthState == HealthState.Exposed) e++; 
+            else if (agents[i].healthState == HealthState.Infected) inf++; 
+            else if (agents[i].healthState == HealthState.Recovered) r++; 
+            else if (agents[i].healthState == HealthState.Vaccinated) v++; 
+        } 
+        
+        SimSaveData saveData = new SimSaveData { 
+            popSize = populationSize, radius = infectionRadius, transRate = transmissionRate, 
+            recTime = recoveryTime, mortRate = mortalityRate, natImmunity = naturalImmunityEfficacy, 
+            immDuration = immunityDurationDays, histImmunity = historicalImmunityEfficacy, 
+            histRecMult = historicalRecoveryMultiplier, lockAbidance = lockdownAbidance, 
+            hospTransMult = hospitalTransmissionMultiplier, beds = hospitalBedsPerFacility, 
+            distComm = distributeToCommercial, s = s, e = e, i = inf, r = r, v = v, d = d, 
+            savedDay = Mathf.FloorToInt(realTime / realSecondsPerInGameDay) + 1 
+        }; 
+        
+        await SimulationSerializer.SaveSimulationToFileAsync(filePath, saveData, timelineHistory); 
+        loadingOverlay.Hide(); 
+#else
+        Debug.LogWarning("Native OS Save Dialog is Editor-Only right now! Install StandaloneFileBrowser package for final build."); 
+#endif
+    }
+
+    private async void PromptLoadFile() 
+    { 
+#if UNITY_EDITOR
+        string filePath = EditorUtility.OpenFilePanel("Load Simulation State", "", "sim"); 
+        if (string.IsNullOrEmpty(filePath)) return; 
+        
+        loadingOverlay.Show("DECOMPRESSING TIMELINE..."); 
+        var result = await SimulationSerializer.LoadSimulationFromFileAsync(filePath); 
+        loadingOverlay.Hide(); 
+        
+        if (result.paramsData == null || result.history == null) { 
+            Debug.LogError("Failed to load save file."); 
+            return; 
+        } 
+        
+        var pData = result.paramsData; 
+        popInput.value = pData.popSize.ToString(); 
+        radiusInput.value = pData.radius.ToString(); 
+        transRateInput.value = pData.transRate.ToString(); 
+        recoveryInput.value = pData.recTime.ToString(); 
+        mortalityInput.value = pData.mortRate.ToString(); 
+        immDurField.value = pData.immDuration; 
+        histRecField.value = pData.histRecMult; 
+        hospTransField.value = pData.hospTransMult; 
+        bedsField.value = pData.beds; 
+        commToggle.value = pData.distComm; 
+        natImmSlider.value = pData.natImmunity; 
+        histImmSlider.value = pData.histImmunity; 
+        lockAbidSlider.value = pData.lockAbidance; 
+        
+        pendingImportData = pData; 
+        timelineHistory = result.history; 
+        furthestRecordedDay = pData.savedDay; 
+        StartSimulationFromUI(); 
+#else
+        Debug.LogWarning("Native OS Load Dialog is Editor-Only right now! Install StandaloneFileBrowser package for final build."); 
+#endif
+    }
+
+    private void SaveHistoricalSnapshot(int day) { SimulationAgent[] snapshot = new SimulationAgent[agents.Length]; agents.CopyTo(snapshot); timelineHistory[day] = snapshot; }
+
+    private void ScrubToHistoricalDay(int targetDay) { if (!timelineHistory.ContainsKey(targetDay) && !baselineHistory.ContainsKey(targetDay)) return; ForcePauseUI(); if (TimeManager.Instance != null) TimeManager.Instance.currentHour = 0f; epicAccumulator = 0f; fixedTickAccumulator = 0f; isExploringPast = targetDay < furthestRecordedDay; currentViewDay = targetDay; SimulationAgent[] snapshot = timelineHistory.ContainsKey(targetDay) ? timelineHistory[targetDay] : baselineHistory[targetDay]; agents.CopyFrom(snapshot); realTime = (targetDay - 1) * realSecondsPerInGameDay; if (AgentRenderer.Instance != null) AgentRenderer.Instance.UpdateRender(agents, realTime, agentGroundOffset); }
+    private void CancelScrubPreview() { if (!isExploringPast) return; isExploringPast = false; currentViewDay = furthestRecordedDay; SimulationAgent[] snapshot = timelineHistory[furthestRecordedDay]; agents.CopyFrom(snapshot); realTime = (furthestRecordedDay - 1) * realSecondsPerInGameDay; if (AgentRenderer.Instance != null) AgentRenderer.Instance.UpdateRender(agents, realTime, agentGroundOffset); }
+    private void BranchTimeline(int branchDay) { if (!hasGhostBaseline) LockNewBaseline(); List<int> daysToDelete = timelineHistory.Keys.Where(day => day > branchDay).ToList(); foreach (var day in daysToDelete) timelineHistory.Remove(day); furthestRecordedDay = branchDay; if (lineGraph != null) lineGraph.maxScrubableDay = furthestRecordedDay; if (lineGraph != null) lineGraph.TruncateData(branchDay); if (activeCasesGraph != null) activeCasesGraph.TruncateData(branchDay); UpdateButtonVisibility(); }
+    private void LockNewBaseline() { baselineHistory = new Dictionary<int, SimulationAgent[]>(timelineHistory); hasGhostBaseline = true; if (lineGraph != null) lineGraph.SetGhostBaseline(); UpdateButtonVisibility(); }
+    private void CancelAttempt() { if (!hasGhostBaseline) return; timelineHistory = new Dictionary<int, SimulationAgent[]>(baselineHistory); furthestRecordedDay = timelineHistory.Keys.Max(); isExploringPast = false; currentViewDay = furthestRecordedDay; if (lineGraph != null) lineGraph.RestoreFromGhost(); ScrubToHistoricalDay(furthestRecordedDay); isExploringPast = false; UpdateButtonVisibility(); }
+    private void UpdateButtonVisibility() { if (cancelAttemptBtn != null) cancelAttemptBtn.style.display = hasGhostBaseline ? DisplayStyle.Flex : DisplayStyle.None; }
+
+    private VisualElement CreateSliderRow(string labelText, float min, float max, float defaultVal, out Slider sliderReference, System.Action<float> onValueChanged) { 
+        var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 2 } }; 
+        var slider = new Slider(labelText, min, max) { value = defaultVal, style = { flexGrow = 1 } }; slider.AddToClassList("inspector-field"); sliderReference = slider; 
+        var floatField = new FloatField { value = defaultVal, style = { width = 45, marginLeft = 5 } }; floatField.AddToClassList("inspector-field"); 
+        slider.RegisterValueChangedCallback(evt => { floatField.SetValueWithoutNotify((float)System.Math.Round(evt.newValue, 3)); onValueChanged(evt.newValue); }); 
+        floatField.RegisterValueChangedCallback(evt => { float val = Mathf.Clamp(evt.newValue, min, max); if (evt.newValue != val) floatField.SetValueWithoutNotify(val); slider.SetValueWithoutNotify(val); onValueChanged(val); }); 
+        
+        row.Add(slider); row.Add(floatField); 
+        
+        string key = labelText.Replace(":", "").Trim();
+        if (tooltips.ContainsKey(key)) row.Add(CreateInfoButton(key));
+
+        return row; 
+    }
+    
+    private void StyleCustomScrollbar(ScrollView sv) { sv.RegisterCallback<GeometryChangedEvent>(evt => { var scroller = sv.verticalScroller; if (scroller == null) return; scroller.style.width = 6; scroller.style.minWidth = 6; scroller.style.maxWidth = 6; scroller.style.borderLeftWidth = 0; scroller.style.borderRightWidth = 0; var upBtn = scroller.Q(className: "unity-scroller__high-button"); if (upBtn != null) upBtn.style.display = DisplayStyle.None; var downBtn = scroller.Q(className: "unity-scroller__low-button"); if (downBtn != null) downBtn.style.display = DisplayStyle.None; var tracker = scroller.Q(className: "unity-base-slider__tracker"); if (tracker != null) { tracker.style.backgroundColor = Color.clear; tracker.style.borderLeftWidth = 0; tracker.style.borderRightWidth = 0; } var dragger = scroller.Q(className: "unity-base-slider__dragger"); if (dragger != null) { dragger.style.backgroundColor = new Color(0.4f, 0.4f, 0.4f, 1f); dragger.style.borderTopLeftRadius = 3; dragger.style.borderTopRightRadius = 3; dragger.style.borderBottomLeftRadius = 3; dragger.style.borderBottomRightRadius = 3; dragger.style.width = 6; dragger.style.left = 0; dragger.style.marginLeft = 0; } }); }
+    private void SwitchTab(bool showSetup) { if (setupContainer != null) setupContainer.style.display = showSetup ? DisplayStyle.Flex : DisplayStyle.None; if (runtimeContainer != null) runtimeContainer.style.display = !showSetup ? DisplayStyle.Flex : DisplayStyle.None; if (tabSetupBtn != null) { if (showSetup) tabSetupBtn.AddToClassList("tab-button--active"); else tabSetupBtn.RemoveFromClassList("tab-button--active"); } if (tabRuntimeBtn != null) { if (!showSetup) tabRuntimeBtn.AddToClassList("tab-button--active"); else tabRuntimeBtn.RemoveFromClassList("tab-button--active"); } }
+
+    public void ResetSimulation() { if (!initialized) return; initialized = false; pendingImportData = null; ForcePauseUI(); DisposeArrays(); realTime = 0f; epicAccumulator = 0f; fixedTickAccumulator = 0f; timelineHistory.Clear(); baselineHistory.Clear(); hasGhostBaseline = false; furthestRecordedDay = 0; isExploringPast = false; currentFastIndex = 0; if (lineGraph != null) lineGraph.maxScrubableDay = 0; currentDeployedVaccineStrain = -1; currentVaccineEfficacy = 0f; currentVaccineAbidance = 0f; totalVaccinesAvailable = 0; if (lineGraph != null) lineGraph.ClearData(); if (activeCasesGraph != null) activeCasesGraph.ClearData(); if (barGraph != null) barGraph.ClearData(); if (simulationStats != null) simulationStats.ClearData(); if (virusVaccineControls != null) { virusVaccineControls.UpdateActiveStrains(new Dictionary<int, int>()); virusVaccineControls.UpdateActiveVaccines(new Dictionary<int, int>()); } if (headerDayLabel != null) headerDayLabel.text = "DAY: 0"; if (headerTimeLabel != null) headerTimeLabel.text = "TIME: 00:00"; UpdateHUDDisplay(); UpdateButtonVisibility(); if (setupContainer != null) setupContainer.SetEnabled(true); SwitchTab(true); }
 
     private void TriggerMutationEvent(int newStrainID, float evasion, float trans, float incubation, float fatality) { baseTransmissionRate = trans; if (socialDistanceToggle != null && socialDistanceToggle.value) transmissionRate = baseTransmissionRate * 0.4f; else transmissionRate = baseTransmissionRate; minIncubationDays = Mathf.Max(1f, incubation - 1f); maxIncubationDays = incubation + 1f; mortalityRate = fatality; for (int i = 0; i < agents.Length; i++) { var agent = agents[i]; if (agent.healthState == HealthState.Recovered || agent.healthState == HealthState.Vaccinated) { if (Random.value <= evasion) { agent.healthState = HealthState.Susceptible; agent.protectedStrainID = -1; } } if (agent.healthState == HealthState.Infected || agent.healthState == HealthState.Exposed) { agent.activeStrainID = newStrainID; } agents[i] = agent; } }
     private void TriggerVaccineWave(int strainID, int doses, float efficacy, float abidance) { currentDeployedVaccineStrain = strainID; currentVaccineEfficacy = efficacy; currentVaccineAbidance = abidance; totalVaccinesAvailable = doses; int activeClinics = hospitalPositions.Length + (distributeToCommercial ? commercialPositions.Length : 0); int vaccinesPerClinic = doses / Mathf.Max(1, activeClinics); for (int i = 0; i < hospitalInventory.Length; i++) hospitalInventory[i] = vaccinesPerClinic; if (distributeToCommercial) { for (int i = 0; i < commercialInventory.Length; i++) commercialInventory[i] = vaccinesPerClinic; } }
-
+    
     void StartSimulationFromUI() { if (popInput != null && int.TryParse(popInput.value, out int p)) populationSize = p; if (infectedInput != null && int.TryParse(infectedInput.value, out int i)) initialInfected = i; if (radiusInput != null && float.TryParse(radiusInput.value, out float r)) infectionRadius = r; if (transRateInput != null && float.TryParse(transRateInput.value, out float tr)) transmissionRate = tr; if (recoveryInput != null && float.TryParse(recoveryInput.value, out float rec)) recoveryTime = rec; if (mortalityInput != null && float.TryParse(mortalityInput.value, out float m)) mortalityRate = m; baseTransmissionRate = transmissionRate; baseInfectionRadius = infectionRadius; if (lineGraph != null) lineGraph.maxPopulation = populationSize; if (barGraph != null) barGraph.maxPopulation = populationSize; if (activeCasesGraph != null) activeCasesGraph.maxPopulation = populationSize; if (setupContainer != null) setupContainer.SetEnabled(false); SwitchTab(false); Initialize(); }
 
     void Initialize()
@@ -405,7 +581,6 @@ public class SimulationManager : MonoBehaviour
         workPositions = new float3[Mathf.Max(works.Count, 1)]; for (int i = 0; i < works.Count; i++) workPositions[i] = new float3(works[i].GetPosition().x, groundY, works[i].GetPosition().z);
         commercialPositions = new float3[Mathf.Max(commercials.Count, 1)]; for (int i = 0; i < commercials.Count; i++) commercialPositions[i] = new float3(commercials[i].GetPosition().x, groundY, commercials[i].GetPosition().z);
         hospitalPositions = new float3[Mathf.Max(hospitals.Count, 1)]; for (int i = 0; i < hospitals.Count; i++) hospitalPositions[i] = new float3(hospitals[i].GetPosition().x, groundY, hospitals[i].GetPosition().z);
-
         hospitalInventory = new int[hospitalPositions.Length]; commercialInventory = new int[commercialPositions.Length];
         waypoints = new NativeArray<float3>(waypointData.waypoints.Length, Allocator.Persistent); for (int i = 0; i < waypointData.waypoints.Length; i++) waypoints[i] = new float3(waypointData.waypoints[i].x, groundY, waypointData.waypoints[i].z);
         neighborData = new NativeArray<int>(waypointData.neighborData, Allocator.Persistent); neighborStart = new NativeArray<int>(waypointData.neighborStart, Allocator.Persistent); neighborCount = new NativeArray<int>(waypointData.neighborCount, Allocator.Persistent);
@@ -423,50 +598,38 @@ public class SimulationManager : MonoBehaviour
         indoorMap = new NativeParallelMultiHashMap<int, int>(populationSize, Allocator.Persistent);
         agents = new NativeArray<SimulationAgent>(populationSize, Allocator.Persistent); agentsBuffer = new NativeArray<SimulationAgent>(populationSize, Allocator.Persistent);
 
-        List<HealthState> statePool = new List<HealthState>();
-        if (pendingImportData != null) {
-            for(int k=0; k<pendingImportData.s; k++) statePool.Add(HealthState.Susceptible);
-            for(int k=0; k<pendingImportData.e; k++) statePool.Add(HealthState.Exposed);
-            for(int k=0; k<pendingImportData.i; k++) statePool.Add(HealthState.Infected);
-            for(int k=0; k<pendingImportData.r; k++) statePool.Add(HealthState.Recovered);
-            for(int k=0; k<pendingImportData.v; k++) statePool.Add(HealthState.Vaccinated);
-            for(int k=0; k<pendingImportData.d; k++) statePool.Add(HealthState.Dead);
-            while(statePool.Count < populationSize) statePool.Add(HealthState.Susceptible);
-            for (int i = 0; i < statePool.Count; i++) { int tempIdx = Random.Range(i, statePool.Count); HealthState temp = statePool[tempIdx]; statePool[tempIdx] = statePool[i]; statePool[i] = temp; }
-        }
-
-        for (int i = 0; i < populationSize; i++)
+        if (pendingImportData != null && timelineHistory != null && timelineHistory.ContainsKey(pendingImportData.savedDay))
         {
-            int hIdx = i % homePositions.Length;
-            HealthState assignedState = pendingImportData != null ? statePool[i] : (i < initialInfected ? HealthState.Infected : HealthState.Susceptible);
-
-            agents[i] = new SimulationAgent
-            {
-                position = waypoints[homeNearestWaypoint[hIdx]], moveStartPosition = waypoints[homeNearestWaypoint[hIdx]], moveEndPosition = waypoints[homeNearestWaypoint[hIdx]], targetPosition = waypoints[homeNearestWaypoint[hIdx]], personalOffset = GetPersonalOffset(i),
-                healthState = assignedState, scheduleState = AgentScheduleState.Home,
-                
-                activeStrainID = assignedState == HealthState.Infected ? baseStartingStrainID : -1,
-                protectedStrainID = assignedState == HealthState.Vaccinated ? baseStartingStrainID : -1,
-                immunityTimer = 0f, historicalStrainMask = assignedState == HealthState.Infected ? (1u << baseStartingStrainID) : 0u, 
-                
-                isSeekingVaccine = false, vaccineClinicID = -1, isVaccineClinicCommercial = false, vaccineWaitTimer = 0f, 
-                healthcareID = i % hospitalPositions.Length, speed = Random.Range(agentSpeed * 0.75f, agentSpeed * 1.25f),
-                homeID = hIdx, workID = i % workPositions.Length, commercialID = i % commercialPositions.Length,
-                currentWaypointIndex = homeNearestWaypoint[hIdx], destinationWaypointIndex = homeNearestWaypoint[hIdx],
-                workStartHour = Random.Range(7f, 9f), workEndHour = Random.Range(16f, 18f), returnHomeHour = Mathf.Max(Random.Range(18f, 22f), Random.Range(16f, 18f) + 1f),
-                commercialArrivalHour = Random.Range(16f, 18f) + Random.Range(0.25f, 1.0f), complianceLevel = Random.Range(0f, 1f), commutingStartTime = -9999f, isActive = true, isInsideBuilding = true, visitsCommercial = Random.value < 0.4f
-            };
+            agents.CopyFrom(timelineHistory[pendingImportData.savedDay]);
+            realTime = pendingImportData.savedDay * realSecondsPerInGameDay; 
+            if (lineGraph != null) { lineGraph.ClearData(); for (int d = 0; d <= pendingImportData.savedDay; d++) { if (timelineHistory.ContainsKey(d)) { int hS = 0, hE = 0, hI = 0, hR = 0, hV = 0, hD = 0; foreach(var ag in timelineHistory[d]) { if (ag.healthState == HealthState.Susceptible) hS++; else if (ag.healthState == HealthState.Exposed) hE++; else if (ag.healthState == HealthState.Infected) hI++; else if (ag.healthState == HealthState.Recovered) hR++; else if (ag.healthState == HealthState.Vaccinated) hV++; else if (ag.healthState == HealthState.Dead) hD++; } lineGraph.AddData(hS, hE, hI, hR, hV, hD, d); if (activeCasesGraph != null) activeCasesGraph.AddData(hI, d); } } }
         }
+        else 
+        {
+            for (int i = 0; i < populationSize; i++) {
+                int hIdx = i % homePositions.Length; 
+                HealthState assignedState = i < initialInfected ? HealthState.Infected : HealthState.Susceptible;
+                agents[i] = new SimulationAgent {
+                    position = waypoints[homeNearestWaypoint[hIdx]], moveStartPosition = waypoints[homeNearestWaypoint[hIdx]], moveEndPosition = waypoints[homeNearestWaypoint[hIdx]], targetPosition = waypoints[homeNearestWaypoint[hIdx]], personalOffset = GetPersonalOffset(i), healthState = assignedState, scheduleState = AgentScheduleState.Home, activeStrainID = assignedState == HealthState.Infected ? baseStartingStrainID : -1, protectedStrainID = assignedState == HealthState.Vaccinated ? baseStartingStrainID : -1, immunityTimer = 0f, historicalStrainMask = assignedState == HealthState.Infected ? (1u << baseStartingStrainID) : 0u, isSeekingVaccine = false, vaccineClinicID = -1, isVaccineClinicCommercial = false, vaccineWaitTimer = 0f, healthcareID = i % hospitalPositions.Length, speed = Random.Range(agentSpeed * 0.75f, agentSpeed * 1.25f), homeID = hIdx, workID = i % workPositions.Length, commercialID = i % commercialPositions.Length, currentWaypointIndex = homeNearestWaypoint[hIdx], destinationWaypointIndex = homeNearestWaypoint[hIdx], workStartHour = Random.Range(7f, 9f), workEndHour = Random.Range(16f, 18f), returnHomeHour = Mathf.Max(Random.Range(18f, 22f), Random.Range(16f, 18f) + 1f), commercialArrivalHour = Random.Range(16f, 18f) + Random.Range(0.25f, 1.0f), complianceLevel = Random.Range(0f, 1f), commutingStartTime = -9999f, isActive = true, isInsideBuilding = true, visitsCommercial = Random.value < 0.4f
+                };
+            }
+            SaveHistoricalSnapshot(0); 
+        }
+
+        pendingImportData = null; initialized = true; 
         
-        pendingImportData = null; 
-        SaveHistoricalSnapshot(0);
-        initialized = true;
+        int startS = 0, startE = 0, startI = 0, startR = 0, startV = 0, startD = 0;
+        for (int i = 0; i < agents.Length; i++) { if (agents[i].healthState == HealthState.Susceptible) startS++; else if (agents[i].healthState == HealthState.Exposed) startE++; else if (agents[i].healthState == HealthState.Infected) startI++; else if (agents[i].healthState == HealthState.Recovered) startR++; else if (agents[i].healthState == HealthState.Vaccinated) startV++; else if (agents[i].healthState == HealthState.Dead) startD++; }
+        if (barGraph != null) barGraph.UpdateData(startS, startE, startI, startR, startV, startD);
+        if (simulationStats != null) { int tBeds = hospitalPositions.Length * hospitalBedsPerFacility; simulationStats.UpdateData(populationSize - startD, startD, startS, startE, startI, startR, startV, 0, tBeds, 0, 0); }
+
+        TogglePlayPause();
     }
 
     void Update()
     {
         if (!initialized) return;
-        float multiplier = TimeManager.Instance != null ? TimeManager.Instance.timeMultiplier : 1f;
+        float multiplier = isPaused ? 0f : fastSpeeds[currentFastIndex];
 
         if (multiplier > 0f)
         {
@@ -479,30 +642,6 @@ public class SimulationManager : MonoBehaviour
                 if (TimeManager.Instance != null) TimeManager.Instance.AdvanceTime(dynamicTick / multiplier);
                 int currentDay = Mathf.FloorToInt(realTime / realSecondsPerInGameDay) + 1;
 
-                if (currentDay > 365)
-                {
-                    if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = 0f;
-                    
-                    int d = 0, s = 0, e = 0, inf = 0, r = 0, v = 0;
-                    for(int i=0; i<agents.Length; i++) {
-                        if (agents[i].healthState == HealthState.Dead) d++; else if (agents[i].healthState == HealthState.Susceptible) s++;
-                        else if (agents[i].healthState == HealthState.Exposed) e++; else if (agents[i].healthState == HealthState.Infected) inf++;
-                        else if (agents[i].healthState == HealthState.Recovered) r++; else if (agents[i].healthState == HealthState.Vaccinated) v++;
-                    }
-
-                    SimSaveData saveData = new SimSaveData {
-                        popSize = populationSize, radius = infectionRadius, transRate = transmissionRate, recTime = recoveryTime, mortRate = mortalityRate,
-                        natImmunity = naturalImmunityEfficacy, immDuration = immunityDurationDays, histImmunity = historicalImmunityEfficacy, histRecMult = historicalRecoveryMultiplier,
-                        lockAbidance = lockdownAbidance, hospTransMult = hospitalTransmissionMultiplier, beds = hospitalBedsPerFacility, distComm = distributeToCommercial,
-                        s = s, e = e, i = inf, r = r, v = v, d = d
-                    };
-                    
-                    string base64Code = SimulationSerializer.ExportState(saveData);
-                    reportPopup.ShowReport(currentYear, d, s, base64Code);
-                    
-                    return; 
-                }
-
                 if (currentDay > furthestRecordedDay && !isExploringPast) { SaveHistoricalSnapshot(currentDay); furthestRecordedDay = currentDay; if (lineGraph != null) { lineGraph.maxScrubableDay = furthestRecordedDay; } }
 
                 for (int i = 0; i < agents.Length; i++)
@@ -510,34 +649,13 @@ public class SimulationManager : MonoBehaviour
                     var agent = agents[i];
                     if (agent.isSeekingVaccine) 
                     {
-                        bool arrivedAtHospital = !agent.isVaccineClinicCommercial && agent.scheduleState == AgentScheduleState.AtHospital && agent.isAtHospital;
-                        bool arrivedAtCommercial = agent.isVaccineClinicCommercial && agent.scheduleState == AgentScheduleState.AtCommercial && agent.isInsideBuilding && agent.commutingStartTime == -9999f;
-
-                        if (arrivedAtHospital || arrivedAtCommercial)
-                        {
-                            agent.vaccineWaitTimer -= dynamicTick; 
-                            if (agent.vaccineWaitTimer <= 0f)
-                            {
-                                bool isEligible = agent.healthState == HealthState.Susceptible || agent.healthState == HealthState.Recovered || agent.healthState == HealthState.Vaccinated;
-                                if (isEligible) 
-                                {
-                                    bool gotShot = false;
-                                    if (!agent.isVaccineClinicCommercial && hospitalInventory[agent.vaccineClinicID] > 0) { hospitalInventory[agent.vaccineClinicID]--; gotShot = true; } 
-                                    else if (agent.isVaccineClinicCommercial && commercialInventory[agent.vaccineClinicID] > 0) { commercialInventory[agent.vaccineClinicID]--; gotShot = true; }
-
-                                    if (gotShot && Random.value <= currentVaccineEfficacy) { agent.healthState = HealthState.Vaccinated; agent.protectedStrainID = currentDeployedVaccineStrain; agent.immunityTimer = Mathf.Max(1f, immunityDurationDays) * realSecondsPerInGameDay; }
-                                }
-                                agent.isSeekingVaccine = false; agent.isAtHospital = false; 
-                            }
-                        }
-                        agents[i] = agent; 
+                        bool arrivedAtHospital = !agent.isVaccineClinicCommercial && agent.scheduleState == AgentScheduleState.AtHospital && agent.isAtHospital; bool arrivedAtCommercial = agent.isVaccineClinicCommercial && agent.scheduleState == AgentScheduleState.AtCommercial && agent.isInsideBuilding && agent.commutingStartTime == -9999f;
+                        if (arrivedAtHospital || arrivedAtCommercial) { agent.vaccineWaitTimer -= dynamicTick; if (agent.vaccineWaitTimer <= 0f) { bool isEligible = agent.healthState == HealthState.Susceptible || agent.healthState == HealthState.Recovered || agent.healthState == HealthState.Vaccinated; if (isEligible) { bool gotShot = false; if (!agent.isVaccineClinicCommercial && hospitalInventory[agent.vaccineClinicID] > 0) { hospitalInventory[agent.vaccineClinicID]--; gotShot = true; } else if (agent.isVaccineClinicCommercial && commercialInventory[agent.vaccineClinicID] > 0) { commercialInventory[agent.vaccineClinicID]--; gotShot = true; } if (gotShot && Random.value <= currentVaccineEfficacy) { agent.healthState = HealthState.Vaccinated; agent.protectedStrainID = currentDeployedVaccineStrain; agent.immunityTimer = Mathf.Max(1f, immunityDurationDays) * realSecondsPerInGameDay; } } agent.isSeekingVaccine = false; agent.isAtHospital = false; } } agents[i] = agent; 
                     }
                 }
 
-                ScheduleUpdateJob scheduleJob = new ScheduleUpdateJob { agents = agents, currentHour = TimeManager.Instance != null ? TimeManager.Instance.currentHour : 8f, isLockdown = this.isLockdown, lockdownAbidanceThreshold = this.lockdownAbidance, homeNearestWaypoint = nativeHomeNearest, workNearestWaypoint = nativeWorkNearest, commercialNearestWaypoint = nativeCommercialNearest, hospitalNearestWaypoint = nativeHospitalNearest, homePositions = nativeHomePositions, hospitalPositions = nativeHospitalPositions, commercialPositions = nativeCommercialPositions, waypoints = waypoints, stuckTimeoutSimHours = stuckTimeoutSimHours, waypointReachDistance = waypointReachDistance, destinationOffsetRange = destinationOffsetRange, groundY = groundY };
-                JobHandle scheduleHandle = scheduleJob.Schedule(agents.Length, 64);
-                WaypointAssignJob waypointJob = new WaypointAssignJob { agents = agents, waypoints = waypoints, neighborData = neighborData, neighborStart = neighborStart, neighborCount = neighborCount, currentSimTime = realTime, realTime = realTime, waypointReachDistance = waypointReachDistance, currentHour = TimeManager.Instance != null ? TimeManager.Instance.currentHour : 8f };
-                JobHandle waypointHandle = waypointJob.Schedule(agents.Length, 64, scheduleHandle); waypointHandle.Complete();
+                ScheduleUpdateJob scheduleJob = new ScheduleUpdateJob { agents = agents, currentHour = TimeManager.Instance != null ? TimeManager.Instance.currentHour : 8f, isLockdown = this.isLockdown, lockdownAbidanceThreshold = this.lockdownAbidance, homeNearestWaypoint = nativeHomeNearest, workNearestWaypoint = nativeWorkNearest, commercialNearestWaypoint = nativeCommercialNearest, hospitalNearestWaypoint = nativeHospitalNearest, homePositions = nativeHomePositions, hospitalPositions = nativeHospitalPositions, commercialPositions = nativeCommercialPositions, waypoints = waypoints, stuckTimeoutSimHours = stuckTimeoutSimHours, waypointReachDistance = waypointReachDistance, destinationOffsetRange = destinationOffsetRange, groundY = groundY }; JobHandle scheduleHandle = scheduleJob.Schedule(agents.Length, 64);
+                WaypointAssignJob waypointJob = new WaypointAssignJob { agents = agents, waypoints = waypoints, neighborData = neighborData, neighborStart = neighborStart, neighborCount = neighborCount, currentSimTime = realTime, realTime = realTime, waypointReachDistance = waypointReachDistance, currentHour = TimeManager.Instance != null ? TimeManager.Instance.currentHour : 8f }; JobHandle waypointHandle = waypointJob.Schedule(agents.Length, 64, scheduleHandle); waypointHandle.Complete();
 
                 epicAccumulator += dynamicTick;
                 if (epicAccumulator >= epicTickInterval)
@@ -545,57 +663,24 @@ public class SimulationManager : MonoBehaviour
                     float epidemicDelta = epicAccumulator; epicAccumulator = 0f;
                     spatialGrid.grid.Clear(); indoorMap.Clear(); 
                     
-                    if (currentDeployedVaccineStrain != -1)
-                    {
-                        for (int i = 0; i < agents.Length; i++)
-                        {
-                            var agent = agents[i];
-                            if (!agent.isSeekingVaccine && agent.protectedStrainID != currentDeployedVaccineStrain && agent.healthState != HealthState.Dead)
-                            {
-                                bool isEligible = agent.healthState == HealthState.Susceptible || agent.healthState == HealthState.Recovered || agent.healthState == HealthState.Vaccinated;
-                                if (isEligible && agent.complianceLevel <= currentVaccineAbidance)
-                                {
-                                    bool wantsCommercial = distributeToCommercial && Random.value > 0.5f;
-                                    int primaryClinic = wantsCommercial ? agent.commercialID : agent.healthcareID; int primaryStock = wantsCommercial ? commercialInventory[primaryClinic] : hospitalInventory[primaryClinic];
-                                    if (primaryStock > 0) { agent.isSeekingVaccine = true; agent.isVaccineClinicCommercial = wantsCommercial; agent.vaccineClinicID = primaryClinic; agent.vaccineWaitTimer = Random.Range(1f, 3f) * (realSecondsPerInGameDay / 24f); agents[i] = agent; } 
-                                    else { bool fallbackCommercial = !wantsCommercial; if (!fallbackCommercial || distributeToCommercial) { int fallbackClinic = fallbackCommercial ? agent.commercialID : agent.healthcareID; int fallbackStock = fallbackCommercial ? commercialInventory[fallbackClinic] : hospitalInventory[fallbackClinic]; if (fallbackStock > 0) { agent.isSeekingVaccine = true; agent.isVaccineClinicCommercial = fallbackCommercial; agent.vaccineClinicID = fallbackClinic; agent.vaccineWaitTimer = Random.Range(1f, 3f) * (realSecondsPerInGameDay / 24f); agents[i] = agent; } } }
-                                }
-                            }
-                        }
-                    }
+                    if (currentDeployedVaccineStrain != -1) { for (int i = 0; i < agents.Length; i++) { var agent = agents[i]; if (!agent.isSeekingVaccine && agent.protectedStrainID != currentDeployedVaccineStrain && agent.healthState != HealthState.Dead) { bool isEligible = agent.healthState == HealthState.Susceptible || agent.healthState == HealthState.Recovered || agent.healthState == HealthState.Vaccinated; if (isEligible && agent.complianceLevel <= currentVaccineAbidance) { bool wantsCommercial = distributeToCommercial && Random.value > 0.5f; int primaryClinic = wantsCommercial ? agent.commercialID : agent.healthcareID; int primaryStock = wantsCommercial ? commercialInventory[primaryClinic] : hospitalInventory[primaryClinic]; if (primaryStock > 0) { agent.isSeekingVaccine = true; agent.isVaccineClinicCommercial = wantsCommercial; agent.vaccineClinicID = primaryClinic; agent.vaccineWaitTimer = Random.Range(1f, 3f) * (realSecondsPerInGameDay / 24f); agents[i] = agent; } else { bool fallbackCommercial = !wantsCommercial; if (!fallbackCommercial || distributeToCommercial) { int fallbackClinic = fallbackCommercial ? agent.commercialID : agent.healthcareID; int fallbackStock = fallbackCommercial ? commercialInventory[fallbackClinic] : hospitalInventory[fallbackClinic]; if (fallbackStock > 0) { agent.isSeekingVaccine = true; agent.isVaccineClinicCommercial = fallbackCommercial; agent.vaccineClinicID = fallbackClinic; agent.vaccineWaitTimer = Random.Range(1f, 3f) * (realSecondsPerInGameDay / 24f); agents[i] = agent; } } } } } } }
 
                     UpdateGridJob gridJob = new UpdateGridJob { agents = agents, gridWriter = spatialGrid.grid.AsParallelWriter(), cellSize = spatialGrid.cellSize, gridOrigin = spatialGrid.gridOrigin, gridWidth = spatialGrid.gridWidth, gridHeight = spatialGrid.gridHeight }; JobHandle gridHandle = gridJob.Schedule(agents.Length, 64);
                     IndoorMappingJob indoorJob = new IndoorMappingJob { agents = agents, indoorMapWriter = indoorMap.AsParallelWriter() }; JobHandle indoorHandle = indoorJob.Schedule(agents.Length, 64, gridHandle);
-
-                    EpidemicJob epidemicJob = new EpidemicJob { agentsIn = agents, agentsOut = agentsBuffer, grid = spatialGrid.grid, indoorMap = indoorMap, deltaTime = epidemicDelta, currentSimTime = realTime, realSecondsPerInGameDay = realSecondsPerInGameDay, infectionRadius = infectionRadius, transmissionRate = transmissionRate, recoveryTime = recoveryTime, mortalityRate = mortalityRate, minIncubationDays = this.minIncubationDays, maxIncubationDays = this.maxIncubationDays, currentVaccineEfficacy = this.currentVaccineEfficacy, naturalImmunityEfficacy = this.naturalImmunityEfficacy, immunityDurationDays = this.immunityDurationDays, evasionPenaltyPerLevel = 0.20f, historicalImmunityEfficacy = this.historicalImmunityEfficacy, historicalRecoveryMultiplier = this.historicalRecoveryMultiplier, hospitalTransmissionMultiplier = this.hospitalTransmissionMultiplier, cellSize = spatialGrid.cellSize, gridOrigin = spatialGrid.gridOrigin, gridWidth = spatialGrid.gridWidth, gridHeight = spatialGrid.gridHeight };
-                    JobHandle epidemicHandle = epidemicJob.Schedule(agents.Length, 64, indoorHandle); epidemicHandle.Complete();
+                    EpidemicJob epidemicJob = new EpidemicJob { agentsIn = agents, agentsOut = agentsBuffer, grid = spatialGrid.grid, indoorMap = indoorMap, deltaTime = epidemicDelta, currentSimTime = realTime, realSecondsPerInGameDay = realSecondsPerInGameDay, infectionRadius = infectionRadius, transmissionRate = transmissionRate, recoveryTime = recoveryTime, mortalityRate = mortalityRate, minIncubationDays = this.minIncubationDays, maxIncubationDays = this.maxIncubationDays, currentVaccineEfficacy = this.currentVaccineEfficacy, naturalImmunityEfficacy = this.naturalImmunityEfficacy, immunityDurationDays = this.immunityDurationDays, evasionPenaltyPerLevel = 0.20f, historicalImmunityEfficacy = this.historicalImmunityEfficacy, historicalRecoveryMultiplier = this.historicalRecoveryMultiplier, hospitalTransmissionMultiplier = this.hospitalTransmissionMultiplier, cellSize = spatialGrid.cellSize, gridOrigin = spatialGrid.gridOrigin, gridWidth = spatialGrid.gridWidth, gridHeight = spatialGrid.gridHeight }; JobHandle epidemicHandle = epidemicJob.Schedule(agents.Length, 64, indoorHandle); epidemicHandle.Complete();
                     agentsBuffer.CopyTo(agents);
 
-                    int alive = 0, dead = 0, infected = 0, recovered = 0, susceptible = 0, exposed = 0, vaccinated = 0, hospitalized = 0; 
-                    Dictionary<int, int> activeStrainCounts = new Dictionary<int, int>(); Dictionary<int, int> activeVaccineCounts = new Dictionary<int, int>();
-
-                    for (int i = 0; i < agents.Length; i++) {
-                        if (agents[i].healthState == HealthState.Dead) dead++;
-                        else { 
-                            alive++;
-                            if (agents[i].healthState == HealthState.Infected) { infected++; int sID = agents[i].activeStrainID; if (sID != -1) { if (!activeStrainCounts.ContainsKey(sID)) activeStrainCounts[sID] = 0; activeStrainCounts[sID]++; } }
-                            else if (agents[i].healthState == HealthState.Exposed) exposed++;
-                            else if (agents[i].healthState == HealthState.Recovered) { recovered++; int vID = agents[i].protectedStrainID; if (vID != -1) { if (!activeVaccineCounts.ContainsKey(vID)) activeVaccineCounts[vID] = 0; activeVaccineCounts[vID]++; } }
-                            else if (agents[i].healthState == HealthState.Vaccinated) { vaccinated++; int vID = agents[i].protectedStrainID; if (vID != -1) { if (!activeVaccineCounts.ContainsKey(vID)) activeVaccineCounts[vID] = 0; activeVaccineCounts[vID]++; } }
-                            else if (agents[i].healthState == HealthState.Susceptible) susceptible++;
-                            if (agents[i].scheduleState == AgentScheduleState.AtHospital) hospitalized++;
-                        }
-                    }
+                    int alive = 0, dead = 0, infected = 0, recovered = 0, susceptible = 0, exposed = 0, vaccinated = 0, hospitalized = 0; Dictionary<int, int> activeStrainCounts = new Dictionary<int, int>(); Dictionary<int, int> activeVaccineCounts = new Dictionary<int, int>();
+                    for (int i = 0; i < agents.Length; i++) { if (agents[i].healthState == HealthState.Dead) dead++; else { alive++; if (agents[i].healthState == HealthState.Infected) { infected++; int sID = agents[i].activeStrainID; if (sID != -1) { if (!activeStrainCounts.ContainsKey(sID)) activeStrainCounts[sID] = 0; activeStrainCounts[sID]++; } } else if (agents[i].healthState == HealthState.Exposed) exposed++; else if (agents[i].healthState == HealthState.Recovered) { recovered++; int vID = agents[i].protectedStrainID; if (vID != -1) { if (!activeVaccineCounts.ContainsKey(vID)) activeVaccineCounts[vID] = 0; activeVaccineCounts[vID]++; } } else if (agents[i].healthState == HealthState.Vaccinated) { vaccinated++; int vID = agents[i].protectedStrainID; if (vID != -1) { if (!activeVaccineCounts.ContainsKey(vID)) activeVaccineCounts[vID] = 0; activeVaccineCounts[vID]++; } } else if (agents[i].healthState == HealthState.Susceptible) susceptible++; if (agents[i].scheduleState == AgentScheduleState.AtHospital) hospitalized++; } }
 
                     int remainingVaccines = 0; if (hospitalInventory != null) { foreach (int v in hospitalInventory) remainingVaccines += v; if (distributeToCommercial) foreach (int v in commercialInventory) remainingVaccines += v; }
                     float exactDay = realTime / realSecondsPerInGameDay;
-
-                    if (lineGraph != null) lineGraph.AddData(susceptible, exposed, infected, recovered, vaccinated, dead, exactDay);
-                    if (barGraph != null) barGraph.UpdateData(susceptible, exposed, infected, recovered, vaccinated, dead);
-                    if (activeCasesGraph != null) activeCasesGraph.AddData(infected, exactDay);
+                    if (lineGraph != null) lineGraph.AddData(susceptible, exposed, infected, recovered, vaccinated, dead, exactDay); if (barGraph != null) barGraph.UpdateData(susceptible, exposed, infected, recovered, vaccinated, dead); if (activeCasesGraph != null) activeCasesGraph.AddData(infected, exactDay); if (virusVaccineControls != null) { virusVaccineControls.UpdateActiveStrains(activeStrainCounts); virusVaccineControls.UpdateActiveVaccines(activeVaccineCounts); }
                     
-                    if (virusVaccineControls != null) { virusVaccineControls.UpdateActiveStrains(activeStrainCounts); virusVaccineControls.UpdateActiveVaccines(activeVaccineCounts); }
-                    if (simulationStats != null) { float currentHour = TimeManager.Instance != null ? TimeManager.Instance.currentHour : 0f; int totalBeds = (hospitalPositions != null) ? hospitalPositions.Length * hospitalBedsPerFacility : 0; simulationStats.UpdateData(currentDay, currentHour, multiplier, alive, dead, susceptible, exposed, infected, recovered, vaccinated, hospitalized, totalBeds, remainingVaccines, totalVaccinesAvailable); }
+                    if (headerDayLabel != null) headerDayLabel.text = $"DAY: {currentDay}";
+                    if (headerTimeLabel != null) { float currentHour = TimeManager.Instance != null ? TimeManager.Instance.currentHour : 0f; headerTimeLabel.text = $"TIME: {Mathf.FloorToInt(currentHour):00}:{Mathf.FloorToInt((currentHour - Mathf.FloorToInt(currentHour)) * 60f):00}"; }
+                    
+                    if (simulationStats != null) { int totalBeds = (hospitalPositions != null) ? hospitalPositions.Length * hospitalBedsPerFacility : 0; simulationStats.UpdateData(alive, dead, susceptible, exposed, infected, recovered, vaccinated, hospitalized, totalBeds, remainingVaccines, totalVaccinesAvailable); }
                 }
             }
         }
@@ -604,7 +689,24 @@ public class SimulationManager : MonoBehaviour
 
     float3 GetPersonalOffset(int agentIndex) { var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(agentIndex * 7919)); return new float3(rng.NextFloat(-destinationOffsetRange, destinationOffsetRange), 0f, rng.NextFloat(-destinationOffsetRange, destinationOffsetRange)); }
     int FindNearestWaypointIndex(float3 target) { float bestDist = float.MaxValue; int bestIdx = 0; for (int i = 0; i < waypoints.Length; i++) { float dist = math.distancesq(new float3(target.x, 0f, target.z), new float3(waypoints[i].x, 0f, waypoints[i].z)); if (dist < bestDist) { bestDist = dist; bestIdx = i; } } return bestIdx; }
-
+    
     void OnDestroy() { DisposeArrays(); }
-    private void DisposeArrays() { if (agents.IsCreated) agents.Dispose(); if (agentsBuffer.IsCreated) agentsBuffer.Dispose(); if (waypoints.IsCreated) waypoints.Dispose(); if (neighborData.IsCreated) neighborData.Dispose(); if (neighborStart.IsCreated) neighborStart.Dispose(); if (neighborCount.IsCreated) neighborCount.Dispose(); if (nativeHomeNearest.IsCreated) nativeHomeNearest.Dispose(); if (nativeWorkNearest.IsCreated) nativeWorkNearest.Dispose(); if (nativeCommercialNearest.IsCreated) nativeCommercialNearest.Dispose(); if (nativeHospitalNearest.IsCreated) nativeHospitalNearest.Dispose(); if (nativeHomePositions.IsCreated) nativeHomePositions.Dispose(); if (nativeHospitalPositions.IsCreated) nativeHospitalPositions.Dispose(); if (nativeCommercialPositions.IsCreated) nativeCommercialPositions.Dispose(); if (indoorMap.IsCreated) indoorMap.Dispose(); spatialGrid?.Dispose(); }
+    
+    private void DisposeArrays() { 
+        if (agents.IsCreated) agents.Dispose(); 
+        if (agentsBuffer.IsCreated) agentsBuffer.Dispose(); 
+        if (waypoints.IsCreated) waypoints.Dispose(); 
+        if (neighborData.IsCreated) neighborData.Dispose(); 
+        if (neighborStart.IsCreated) neighborStart.Dispose(); 
+        if (neighborCount.IsCreated) neighborCount.Dispose(); 
+        if (nativeHomeNearest.IsCreated) nativeHomeNearest.Dispose(); 
+        if (nativeWorkNearest.IsCreated) nativeWorkNearest.Dispose(); 
+        if (nativeCommercialNearest.IsCreated) nativeCommercialNearest.Dispose(); 
+        if (nativeHospitalNearest.IsCreated) nativeHospitalNearest.Dispose(); 
+        if (nativeHomePositions.IsCreated) nativeHomePositions.Dispose(); 
+        if (nativeHospitalPositions.IsCreated) nativeHospitalPositions.Dispose(); 
+        if (nativeCommercialPositions.IsCreated) nativeCommercialPositions.Dispose(); 
+        if (indoorMap.IsCreated) indoorMap.Dispose(); 
+        spatialGrid?.Dispose(); 
+    }
 }

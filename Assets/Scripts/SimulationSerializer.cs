@@ -1,5 +1,10 @@
 ﻿using UnityEngine;
 using System;
+using System.IO;
+using System.IO.Compression;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 
 [Serializable]
 public class SimSaveData
@@ -13,29 +18,101 @@ public class SimSaveData
     
     // Agent Macro States
     public int s, e, i, r, v, d;
+    public int savedDay; 
 }
 
 public static class SimulationSerializer
 {
-    public static string ExportState(SimSaveData data)
+    public static async Task SaveSimulationToFileAsync(string filePath, SimSaveData parameters, Dictionary<int, SimulationAgent[]> history)
     {
-        string json = JsonUtility.ToJson(data);
-        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(json);
-        return Convert.ToBase64String(bytes);
+        await Task.Run(() =>
+        {
+            try
+            {
+                using (FileStream fileStream = new FileStream(filePath, FileMode.Create))
+                using (GZipStream gzipStream = new GZipStream(fileStream, CompressionMode.Compress))
+                using (BinaryWriter writer = new BinaryWriter(gzipStream))
+                {
+                    // 1. Write the parameters
+                    string jsonParams = JsonUtility.ToJson(parameters);
+                    writer.Write(jsonParams);
+
+                    // 2. Write the amount of history days
+                    writer.Write(history.Count);
+                    int agentSize = Marshal.SizeOf(typeof(SimulationAgent));
+
+                    // 3. Dump the RAW MEMORY of the structs perfectly to disk
+                    foreach (var kvp in history)
+                    {
+                        writer.Write(kvp.Key); // Day Number
+                        SimulationAgent[] agents = kvp.Value;
+                        writer.Write(agents.Length); 
+
+                        byte[] bytes = new byte[agents.Length * agentSize];
+                        GCHandle handle = GCHandle.Alloc(agents, GCHandleType.Pinned);
+                        try {
+                            Marshal.Copy(handle.AddrOfPinnedObject(), bytes, 0, bytes.Length);
+                        } finally {
+                            handle.Free();
+                        }
+                        
+                        writer.Write(bytes);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("Failed to save simulation: " + ex.Message);
+            }
+        });
     }
 
-    public static SimSaveData ImportState(string base64)
+    public static async Task<(SimSaveData paramsData, Dictionary<int, SimulationAgent[]> history)> LoadSimulationFromFileAsync(string filePath)
     {
-        try 
+        return await Task.Run(() =>
         {
-            byte[] bytes = Convert.FromBase64String(base64);
-            string json = System.Text.Encoding.UTF8.GetString(bytes);
-            return JsonUtility.FromJson<SimSaveData>(json);
-        } 
-        catch 
-        {
-            Debug.LogError("Invalid Simulation Save Code.");
-            return null;
-        }
+            SimSaveData loadedParams = null;
+            Dictionary<int, SimulationAgent[]> loadedHistory = new Dictionary<int, SimulationAgent[]>();
+
+            try
+            {
+                using (FileStream fileStream = new FileStream(filePath, FileMode.Open))
+                using (GZipStream gzipStream = new GZipStream(fileStream, CompressionMode.Decompress))
+                using (BinaryReader reader = new BinaryReader(gzipStream))
+                {
+                    string jsonParams = reader.ReadString();
+                    loadedParams = JsonUtility.FromJson<SimSaveData>(jsonParams);
+
+                    int dayCount = reader.ReadInt32();
+                    int agentSize = Marshal.SizeOf(typeof(SimulationAgent));
+
+                    // Perfectly reconstruct the RAM blocks
+                    for (int d = 0; d < dayCount; d++)
+                    {
+                        int dayNumber = reader.ReadInt32();
+                        int agentCount = reader.ReadInt32();
+                        
+                        SimulationAgent[] agents = new SimulationAgent[agentCount];
+                        byte[] bytes = reader.ReadBytes(agentCount * agentSize);
+                        
+                        GCHandle handle = GCHandle.Alloc(agents, GCHandleType.Pinned);
+                        try {
+                            Marshal.Copy(bytes, 0, handle.AddrOfPinnedObject(), bytes.Length);
+                        } finally {
+                            handle.Free();
+                        }
+                        
+                        loadedHistory[dayNumber] = agents;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("Failed to load simulation: " + ex.Message);
+                return (null, null);
+            }
+
+            return (loadedParams, loadedHistory);
+        });
     }
 }

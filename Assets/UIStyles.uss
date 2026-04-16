@@ -297,3 +297,107 @@
     justify-content: flex-end;
     margin: 0;
 }
+
+/*
+!* 1. Force the Toggle to take full width and push the box to the right *!
+.custom-unity-toggle {
+    flex-grow: 1;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.custom-unity-toggle > .unity-toggle__label {
+    flex-grow: 1; !* Pushes the checkbox to the far right *!
+    color: rgb(217, 217, 217);
+    -unity-text-align: middle-left;
+    padding-left: 0px;
+}
+
+!* 2. Style the checkbox container to be a rigid gray box *!
+.custom-unity-toggle > .unity-toggle__input {
+    flex-grow: 0;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    background-color: rgb(40, 40, 40); !* Unity dark gray *!
+    border-color: rgb(20, 20, 20);
+    border-width: 1px;
+    border-radius: 3px;
+    margin-right: 5px; !* Spacing before the [i] button *!
+}
+
+!* 3. Make the checkmark vector white when checked *!
+.custom-unity-toggle > .unity-toggle__input:checked > .unity-toggle__checkmark {
+    -unity-background-image-tint-color: white;
+}
+*/
+
+.custom-unity-toggle {
+    flex-grow: 1;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.custom-unity-toggle > .unity-toggle__label {
+    flex-grow: 1;
+    color: rgb(217, 217, 217);
+    -unity-text-align: middle-left;
+    padding-left: 0px;
+}
+
+.custom-unity-toggle > .unity-toggle__input {
+    flex-grow: 0;
+    flex-shrink: 0;
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+    min-width: 16px;
+    min-height: 16px;
+    width: 16px;
+    height: 16px;
+    background-color: rgb(42, 42, 42);
+    border-color: rgb(32, 32, 32);
+    border-width: 1px;
+    border-radius: 3px;
+    margin-left: auto;
+    margin-right: 0px;
+    overflow: hidden;
+}
+
+.custom-unity-toggle > .unity-toggle__input > .unity-toggle__checkmark {
+    position: absolute;
+    min-width: 16px;
+    min-height: 16px;
+    width: 16px;
+    height: 16px;
+    background-color: transparent;
+    -unity-background-image-tint-color: rgba(0, 0, 0, 0);
+    border-radius: 2px;
+}
+
+.custom-unity-toggle > .unity-toggle__input:checked {
+    background-color: rgb(42, 42, 42);
+    border-color: rgb(32, 32, 32);
+}
+
+.custom-unity-toggle > .unity-toggle__input:checked > .unity-toggle__checkmark {
+    background-color: transparent;
+    -unity-background-image-tint-color: white;
+}
+
+.custom-unity-toggle:hover > .unity-toggle__label {
+    color: rgb(217, 217, 217);
+}
+
+.custom-unity-toggle:checked > .unity-toggle__label {
+    color: rgb(217, 217, 217);
+}
+
+
+
+
+
