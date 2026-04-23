@@ -1,4 +1,6 @@
-﻿using UnityEngine;
+﻿//TO BE DELETED
+
+using UnityEngine;
 using UnityEngine.AI;
 
 public class EntranceDetector : MonoBehaviour

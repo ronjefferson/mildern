@@ -1,4 +1,6 @@
-﻿using UnityEngine;
+﻿//TO BE DELETED
+
+using UnityEngine;
 
 [CreateAssetMenu(fileName = "SimulationConfig", menuName = "Simulation/Config")]
 public class SimulationConfig : ScriptableObject

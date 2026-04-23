@@ -31,9 +31,7 @@ public struct ScheduleUpdateJob : IJobParallelFor
             else if (agent.complianceLevel > 0.2f) { forceHome = true; }
         }
 
-        // ==========================================
-        // VACCINE DETOUR (STRICT ARRIVAL LOGIC)
-        // ==========================================
+        
         if (agent.isSeekingVaccine)
         {
             forceHome = false; wantsHospital = false; 
@@ -111,7 +109,7 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 if (ReachedOffsetDestination(agent.position, waypoints[commercialNearestWaypoint[agent.commercialID]], agent.personalOffset))
                 {
                     agent.isInsideBuilding = true; agent.hasMovementSegment = false; agent.hasDestinationWaypoint = false; 
-                    agent.commutingStartTime = -9999f; // SET ON EXACT ARRIVAL!
+                    agent.commutingStartTime = -9999f; 
                     if (!agent.isSeekingVaccine && currentHour >= agent.commercialArrivalHour + 1.5f) SetReturningHome(ref agent, i);
                 }
                 break;
@@ -120,7 +118,7 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 if (ReachedOffsetDestination(agent.position, waypoints[hospitalNearestWaypoint[agent.healthcareID]], agent.personalOffset))
                 {
                     agent.isInsideBuilding = true; 
-                    agent.isAtHospital = true; // SET ON EXACT ARRIVAL!
+                    agent.isAtHospital = true; 
                     agent.hasMovementSegment = false; agent.hasDestinationWaypoint = false; agent.commutingStartTime = -9999f;
                     agent.position = new float3(hospitalPositions[agent.healthcareID].x, groundY, hospitalPositions[agent.healthcareID].z) + agent.personalOffset;
                 }

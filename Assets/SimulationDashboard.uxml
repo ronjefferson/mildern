@@ -33,7 +33,7 @@
         </ui:VisualElement>
         <ui:VisualElement name="BottomPanel" style="flex-grow: 0; height: 400px; background-color: rgb(32, 32, 32); flex-shrink: 0; flex-direction: column;">
             <ui:VisualElement name="GraphsContainer" style="flex-grow: 1; flex-direction: row;">
-                <SimulationStatsDashboard style="width: 200px; height: 96px; border-left-width: 10px; border-top-width: 10px; border-right-width: 10px; border-bottom-width: 10px; flex-grow: 0; flex-shrink: 0;"/>
+                <SimulationStatsDashboard style="width: 254px; height: 96px; border-left-width: 10px; border-top-width: 10px; border-right-width: 10px; border-bottom-width: 10px; flex-grow: 0; flex-shrink: 0;"/>
                 <EpidemicLineGraph/>
                 <ActiveCasesGraph name="ActiveCasesGraph" style="flex-grow: 1; margin-top: 10px; margin-right: 10px; margin-bottom: 10px; margin-left: 10px;"/>
                 <EpidemicBarGraph name="BarGraph" style="flex-grow: 1; height: auto; width: 200px;"/>
