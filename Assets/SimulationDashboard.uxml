@@ -26,7 +26,6 @@
                     <ui:Toggle label="Show Building Colors" name="ColorToggle" value="true" style="color: rgb(255, 255, 255); padding-left: 10px;"/>
                     <ui:Toggle label="Toggle Social Distancing" name="SocialDistanceToggle" style="color: rgb(255, 255, 255); padding-left: 10px;"/>
                     <ui:Toggle label="Toggle Lockdown" name="LockdownToggle" style="color: rgb(255, 255, 255); padding-left: 10px;"/>
-                    <ui:Button text="Cancel Attempt" name="CancelAttemptButton" class="action-button"/>
                     <VirusVaccineControls style="align-self: auto;"/>
                 </ui:VisualElement>
             </ui:VisualElement>

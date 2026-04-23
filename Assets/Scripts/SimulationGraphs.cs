@@ -2,9 +2,6 @@
 using UnityEngine.UIElements;
 using System.Collections.Generic;
 
-// ==========================================
-// WIDGET 1: Epidemic Line Graph (Interactive)
-// ==========================================
 public class EpidemicLineGraph : VisualElement
 {
     public new class UxmlFactory : UxmlFactory<EpidemicLineGraph, UxmlTraits> { }
@@ -87,6 +84,7 @@ public class EpidemicLineGraph : VisualElement
     public void SetGhostBaseline() { ghostSData = new List<Vector3>(sData); ghostEData = new List<Vector3>(eData); ghostIData = new List<Vector3>(iData); ghostRData = new List<Vector3>(rData); ghostVData = new List<Vector3>(vData); ghostDData = new List<Vector3>(dData); graphArea.MarkDirtyRepaint(); }
     public void RestoreFromGhost() { sData = new List<Vector3>(ghostSData); eData = new List<Vector3>(ghostEData); iData = new List<Vector3>(ghostIData); rData = new List<Vector3>(ghostRData); vData = new List<Vector3>(ghostVData); dData = new List<Vector3>(ghostDData); displayMaxDays = sData.Count > 0 ? Mathf.Max(Mathf.CeilToInt(sData[sData.Count - 1].x), 30) : 30; maxScrubableDay = displayMaxDays; graphArea.MarkDirtyRepaint(); }
     public void ClearData() { sData.Clear(); eData.Clear(); iData.Clear(); rData.Clear(); vData.Clear(); dData.Clear(); ghostSData.Clear(); ghostEData.Clear(); ghostIData.Clear(); ghostRData.Clear(); ghostVData.Clear(); ghostDData.Clear(); displayMaxDays = 30; hoveredDay = -1; pinnedDay = -1; maxScrubableDay = 0; graphArea.MarkDirtyRepaint(); }
+    public void ClearGhostBaseline() { ghostSData.Clear(); ghostEData.Clear(); ghostIData.Clear(); ghostRData.Clear(); ghostVData.Clear(); ghostDData.Clear(); graphArea.MarkDirtyRepaint(); }
 
     public void TruncateData(int branchDay)
     {
@@ -125,9 +123,6 @@ public class EpidemicLineGraph : VisualElement
     public static void DrawGridAndAxes(MeshGenerationContext ctx, float width, float height) { var paint2D = ctx.painter2D; paint2D.strokeColor = new Color(0.3f, 0.3f, 0.3f, 0.5f); paint2D.lineWidth = 1f; paint2D.BeginPath(); paint2D.MoveTo(new Vector2(0, height / 2)); paint2D.LineTo(new Vector2(width, height / 2)); paint2D.Stroke(); paint2D.BeginPath(); paint2D.MoveTo(new Vector2(0, height / 4)); paint2D.LineTo(new Vector2(width, height / 4)); paint2D.Stroke(); paint2D.BeginPath(); paint2D.MoveTo(new Vector2(0, height * 0.75f)); paint2D.LineTo(new Vector2(width, height * 0.75f)); paint2D.Stroke(); paint2D.BeginPath(); paint2D.MoveTo(new Vector2(width / 2, 0)); paint2D.LineTo(new Vector2(width / 2, height)); paint2D.Stroke(); paint2D.strokeColor = new Color(0.6f, 0.6f, 0.6f, 1f); paint2D.lineWidth = 2f; paint2D.BeginPath(); paint2D.MoveTo(new Vector2(0, 0)); paint2D.LineTo(new Vector2(0, height)); paint2D.MoveTo(new Vector2(0, height)); paint2D.LineTo(new Vector2(width, height)); paint2D.Stroke(); }
 }
 
-// ==========================================
-// WIDGET 2: Bar Graph
-// ==========================================
 public class EpidemicBarGraph : VisualElement
 {
     public new class UxmlFactory : UxmlFactory<EpidemicBarGraph, UxmlTraits> { }
@@ -196,9 +191,6 @@ public class EpidemicBarGraph : VisualElement
     public void UpdateData(int s, int e, int i, int r, int v, int d) { float total = Mathf.Max(maxPopulation, 1); yMaxLabel.text = (maxPopulation / 1000f).ToString("0.#") + "k"; yMidLabel.text = ((maxPopulation / 2f) / 1000f).ToString("0.#") + "k"; sBar.style.height = Length.Percent(Mathf.Max((s / total) * 100f, 2f)); sLbl.text = s.ToString(); eBar.style.height = Length.Percent(Mathf.Max((e / total) * 100f, 2f)); eLbl.text = e.ToString(); iBar.style.height = Length.Percent(Mathf.Max((i / total) * 100f, 2f)); iLbl.text = i.ToString(); rBar.style.height = Length.Percent(Mathf.Max((r / total) * 100f, 2f)); rLbl.text = r.ToString(); vBar.style.height = Length.Percent(Mathf.Max((v / total) * 100f, 2f)); vLbl.text = v.ToString(); dBar.style.height = Length.Percent(Mathf.Max((d / total) * 100f, 2f)); dLbl.text = d.ToString(); }
 }
 
-// ==========================================
-// WIDGET 3: Active Cases Graph
-// ==========================================
 public class ActiveCasesGraph : VisualElement
 {
     public new class UxmlFactory : UxmlFactory<ActiveCasesGraph, UxmlTraits> { }
@@ -242,9 +234,6 @@ public class ActiveCasesGraph : VisualElement
     void OnGenerateVisualContent(MeshGenerationContext ctx) { float w = graphArea.contentRect.width; float h = graphArea.contentRect.height; EpidemicLineGraph.DrawGridAndAxes(ctx, w, h); if (casesData.Count < 2) return; float yMax = maxPopulation; var paint2D = ctx.painter2D; paint2D.strokeColor = new Color(1f, 0.2f, 0.2f); paint2D.lineWidth = 2f; paint2D.fillColor = new Color(1f, 0.2f, 0.2f, 0.3f); paint2D.BeginPath(); paint2D.MoveTo(new Vector2(0, h)); for (int j = 0; j < casesData.Count; j++) { float x = (casesData[j].x / (float)displayMaxDays) * w; float y = h - ((casesData[j].y / yMax) * h); if (j == 0) paint2D.MoveTo(new Vector2(x, y)); else paint2D.LineTo(new Vector2(x, y)); } paint2D.LineTo(new Vector2((casesData[casesData.Count - 1].x / (float)displayMaxDays) * w, h)); paint2D.ClosePath(); paint2D.Fill(); paint2D.Stroke(); }
 }
 
-// ==========================================
-// WIDGET 4: Simulation Stats Dashboard 
-// ==========================================
 public class SimulationStatsDashboard : VisualElement
 {
     public new class UxmlFactory : UxmlFactory<SimulationStatsDashboard, UxmlTraits> { }
@@ -295,9 +284,6 @@ public class SimulationStatsDashboard : VisualElement
     public void UpdateData(int alive, int dead, int s, int e, int i, int r, int v, int hospUsed, int hospTotal, int vacLeft, int vacTotal) { aliveLabel.text = alive.ToString("N0"); deadLabel.text = dead.ToString("N0"); susceptibleLabel.text = s.ToString("N0"); exposedLabel.text = e.ToString("N0"); infectedLabel.text = i.ToString("N0"); recoveredLabel.text = r.ToString("N0"); vaccinatedLabel.text = v.ToString("N0"); hospitalLabel.text = $"{hospUsed} / {hospTotal}"; vaccineLabel.text = $"{vacLeft} / {vacTotal}"; }
 }
 
-// ==========================================
-// WIDGET 5: Virus & Vaccine Controls (UPDATED WITH TOOLTIPS)
-// ==========================================
 public class VirusVaccineControls : VisualElement
 {
     public new class UxmlFactory : UxmlFactory<VirusVaccineControls, UxmlTraits> { }
@@ -327,9 +313,6 @@ public class VirusVaccineControls : VisualElement
         };
         scrollArea.Add(mainTitle);
 
-        // =========================================
-        // FOLDOUT 1: VIRUS MUTATION
-        // =========================================
         var virusFoldout = new Foldout { text = "Virus Mutation Parameters" }; 
         StyleInspectorFoldout(virusFoldout); 
         
@@ -361,9 +344,6 @@ public class VirusVaccineControls : VisualElement
         virusFoldout.Add(virusContent); 
         scrollArea.Add(virusFoldout);
 
-        // =========================================
-        // FOLDOUT 2: VACCINE DEPLOYMENT
-        // =========================================
         var vaccineFoldout = new Foldout { text = "Vaccine Deployment" }; 
         StyleInspectorFoldout(vaccineFoldout); 
         
@@ -397,7 +377,6 @@ public class VirusVaccineControls : VisualElement
         Add(scrollArea);
     }
 
-    // LOCAL TOOLTIP HELPERS FOR GRAPHS SCRIPT
     private Button CreateInfoButton(string key)
     {
         var btn = new Button() { text = "?" };
@@ -407,7 +386,7 @@ public class VirusVaccineControls : VisualElement
         btn.style.borderTopRightRadius = 8;
         btn.style.borderBottomLeftRadius = 8;
         btn.style.borderBottomRightRadius = 8;
-        btn.style.backgroundColor = new Color(0.34f, 0.34f, 0.34f, 1f);
+        btn.style.backgroundColor = new Color(0.34f, 0.34f, 0.34f, 1f);  
         btn.style.borderTopWidth = 1;
         btn.style.borderBottomWidth = 1;
         btn.style.borderLeftWidth = 1;
@@ -439,12 +418,27 @@ public class VirusVaccineControls : VisualElement
         return btn;
     }
 
+    private void InjectInfoButtonToUXML(VisualElement field, string key)
+    {
+        if (field == null || field.parent == null) return;
+        var parent = field.parent;
+        var index = parent.IndexOf(field);
+        
+        var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, width = Length.Percent(100) } };
+        field.style.flexGrow = 1; 
+        
+        parent.RemoveAt(index);
+        row.Add(field);
+        if (SimulationManager.Instance != null && SimulationManager.Instance.HasTooltip(key)) row.Add(CreateInfoButton(key));
+        parent.Insert(index, row);
+    }
+
     private VisualElement WrapWithInfoButton(VisualElement field, string key)
     {
-        var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
-        field.style.flexGrow = 1;
+        var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, width = Length.Percent(100) } };
+        field.style.flexGrow = 1; 
         row.Add(field);
-        row.Add(CreateInfoButton(key));
+        if (SimulationManager.Instance != null && SimulationManager.Instance.HasTooltip(key)) row.Add(CreateInfoButton(key));
         return row;
     }
 
@@ -516,7 +510,7 @@ public class VirusVaccineControls : VisualElement
         row.Add(s); row.Add(f); 
         
         string key = labelText.Replace(":", "").Trim();
-        row.Add(CreateInfoButton(key));
+        if (SimulationManager.Instance != null && SimulationManager.Instance.HasTooltip(key)) row.Add(CreateInfoButton(key));
         
         return row;
     }
@@ -525,37 +519,62 @@ public class VirusVaccineControls : VisualElement
     public void UpdateActiveVaccines(Dictionary<int, int> vaccineCounts) { activeVaccinesContainer.Clear(); activeVaccinesContainer.Add(CreateListTitle("Current Vaccines")); bool hasAny = false; foreach (var kvp in vaccineCounts) { if (kvp.Value > 0) { var row = new Label($"• Strain v{kvp.Key} Shield: {kvp.Value} protected") { style = { color = new Color(0.85f, 0.85f, 0.85f), fontSize = 10, marginBottom = 2, marginLeft = 4 } }; activeVaccinesContainer.Add(row); hasAny = true; } } if (!hasAny) { activeVaccinesContainer.Add(new Label("No deployed vaccines.") { style = { color = new Color(0.5f, 0.5f, 0.5f), fontSize = 10, unityFontStyleAndWeight = FontStyle.Italic, marginLeft = 4 } }); } }
 }
 
-// ==========================================
-// WIDGET 6: Async Loading Screen Overlay
-// ==========================================
 public class LoadingOverlay : VisualElement
 {
     public new class UxmlFactory : UxmlFactory<LoadingOverlay, UxmlTraits> { }
 
     private Label statusLabel;
+    private VisualElement fillBar;
 
     public LoadingOverlay()
     {
         style.position = Position.Absolute;
         style.top = 0; style.bottom = 0; style.left = 0; style.right = 0;
-        style.backgroundColor = new Color(0f, 0f, 0f, 0.9f); 
+        style.backgroundColor = new Color(0f, 0f, 0f, 0.7f); 
         style.alignItems = Align.Center;
         style.justifyContent = Justify.Center;
         style.display = DisplayStyle.None; 
 
         var panel = new VisualElement { 
-            style = { alignItems = Align.Center, justifyContent = Justify.Center } 
+            style = { 
+                backgroundColor = new Color(0.18f, 0.18f, 0.18f, 1f),
+                borderTopColor = new Color(0.3f, 0.3f, 0.3f, 1f),
+                borderBottomColor = new Color(0.3f, 0.3f, 0.3f, 1f),
+                borderLeftColor = new Color(0.3f, 0.3f, 0.3f, 1f),
+                borderRightColor = new Color(0.3f, 0.3f, 0.3f, 1f),
+                borderTopWidth = 1, borderBottomWidth = 1, borderLeftWidth = 1, borderRightWidth = 1,
+                borderTopLeftRadius = 4, borderTopRightRadius = 4, borderBottomLeftRadius = 4, borderBottomRightRadius = 4,
+                paddingTop = 20, paddingBottom = 20, paddingLeft = 25, paddingRight = 25,
+                width = 350,
+                alignItems = Align.Center
+            } 
         };
 
         statusLabel = new Label("PROCESSING DATA...") { 
-            style = { color = new Color(0.2f, 0.8f, 0.8f, 1f), fontSize = 24, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 15 } 
+            style = { color = Color.white, fontSize = 12, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 15 } 
         };
         panel.Add(statusLabel);
 
-        var warningLbl = new Label("Please wait. Do not close the application.") { 
-            style = { color = new Color(0.6f, 0.6f, 0.6f), fontSize = 12, unityFontStyleAndWeight = FontStyle.Italic } 
+        var trackBar = new VisualElement {
+            style = {
+                width = Length.Percent(100),
+                height = 12,
+                backgroundColor = new Color(0.1f, 0.1f, 0.1f, 1f),
+                borderTopLeftRadius = 3, borderTopRightRadius = 3, borderBottomLeftRadius = 3, borderBottomRightRadius = 3,
+                overflow = Overflow.Hidden
+            }
         };
-        panel.Add(warningLbl);
+
+        fillBar = new VisualElement {
+            style = {
+                width = Length.Percent(0),
+                height = Length.Percent(100),
+                backgroundColor = new Color(0.2f, 0.8f, 0.2f, 1f) 
+            }
+        };
+        
+        trackBar.Add(fillBar);
+        panel.Add(trackBar);
 
         Add(panel);
     }
@@ -563,7 +582,14 @@ public class LoadingOverlay : VisualElement
     public void Show(string message)
     {
         statusLabel.text = message;
+        fillBar.style.width = Length.Percent(0);
         style.display = DisplayStyle.Flex;
+    }
+
+    public void SetProgress(float percent, string message)
+    {
+        statusLabel.text = message;
+        fillBar.style.width = Length.Percent(Mathf.Clamp01(percent) * 100f);
     }
 
     public void Hide()

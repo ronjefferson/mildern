@@ -6,6 +6,7 @@ using Unity.Mathematics;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Threading;
 using System;
 using Random = UnityEngine.Random;
 
@@ -29,7 +30,6 @@ public class SimulationManager : MonoBehaviour
 {
     public static SimulationManager Instance;
 
-    // --- TOOLTIP DATA STRUCTURE ---
     private struct TooltipData {
         public string purpose; public string input; public string range;
         public TooltipData(string p, string i, string r) { purpose = p; input = i; range = r; }
@@ -37,7 +37,6 @@ public class SimulationManager : MonoBehaviour
     private Dictionary<string, TooltipData> tooltips;
     private VisualElement tooltipWindow;
     private Label ttTitle, ttPurpose, ttInput, ttRange;
-    // ------------------------------
 
     [Header("UI Icons (Texture2D)")]
     public Texture2D playIcon;
@@ -55,7 +54,6 @@ public class SimulationManager : MonoBehaviour
     private Slider natImmSlider, histImmSlider, lockAbidSlider;
 
     private Button startSimButton, playButton, fastButton, resetButton, exportBtn, loadSetupBtn;
-    private Button cancelAttemptBtn; 
     
     private Button tabSetupBtn, tabRuntimeBtn; 
     private Toggle colorToggle, socialDistanceToggle, lockdownToggle;
@@ -67,11 +65,16 @@ public class SimulationManager : MonoBehaviour
     private VirusVaccineControls virusVaccineControls; 
     
     private Label headerDayLabel, headerTimeLabel, headerStatusLabel, headerSpeedLabel;
+    private Label runtimeControlsTitle;
+    private VisualElement branchControlsRow;
+    private Button commitAttemptBtn, discardAttemptBtn;
     
     private LoadingOverlay loadingOverlay;
     private SimSaveData pendingImportData = null; 
 
     private bool isPaused = true;
+    private bool isProcessingData = false; 
+    private CancellationTokenSource asyncTaskToken; 
     
     private float[] fastSpeeds = { 1f, 10f, 100f }; 
     private int currentFastIndex = 0;
@@ -141,6 +144,13 @@ public class SimulationManager : MonoBehaviour
     { 
         Instance = this; 
         InitializeTooltips();
+        asyncTaskToken = new CancellationTokenSource();
+        Application.wantsToQuit += OnWantsToQuit; 
+    }
+
+    private bool OnWantsToQuit()
+    {
+        return !isProcessingData; 
     }
     
     void Start() { SetupUI(); }
@@ -148,7 +158,6 @@ public class SimulationManager : MonoBehaviour
     private void InitializeTooltips()
     {
         tooltips = new Dictionary<string, TooltipData> {
-            // Setup Parameters
             {"Population Size", new TooltipData("The total number of agents spawned in the city.", "Integer (e.g., 10000)", "100 - 30,000 (Warning: High numbers require strong CPU)")},
             {"Initial Infected", new TooltipData("The number of 'Patient Zeros' at Day 0.", "Integer (e.g., 10)", "1 to Population Size")},
             {"Infection Radius", new TooltipData("The physical distance a virus can jump between agents.", "Float (1.0 = 1 meter)", "0.1 (Contact) to 5.0 (Airborne)")},
@@ -164,7 +173,6 @@ public class SimulationManager : MonoBehaviour
             {"Beds Per Hospital", new TooltipData("Maximum capacity of patients per healthcare facility.", "Integer", "10 to 500+")},
             {"Vaccines at Commercial", new TooltipData("Allows pharmacies/commercial buildings to distribute vaccines.", "Toggle (True/False)", "N/A")},
             
-            // Runtime Parameters
             {"Reset", new TooltipData("Deletes the current simulation data, clears the RAM, and returns to the Setup tab.", "Action Button", "N/A")},
             {"Play / Pause", new TooltipData("Freezes or resumes the simulation mathematical calculations. You can still move the camera while paused.", "Action Button", "N/A")},
             {"Fast Forward", new TooltipData("Cycles through the simulation calculation speeds.", "Action Button", "1x, 10x, 100x")},
@@ -173,14 +181,12 @@ public class SimulationManager : MonoBehaviour
             {"Toggle Social Distancing", new TooltipData("Instantly forces all agents to attempt to stay further apart, effectively reducing the Infection Radius and Transmission Rate by a set multiplier.", "Checkbox (True/False)", "N/A")},
             {"Toggle Lockdown", new TooltipData("Triggers a city-wide mandate. A percentage of agents (based on Lockdown Abidance) will immediately return home and stay there.", "Checkbox (True/False)", "N/A")},
 
-            // Virus Parameters
             {"New Strain Level", new TooltipData("The classification ID of the newly mutated virus.", "Integer (e.g., 2)", "Must be higher than current strain")},
             {"Immunity Evasion", new TooltipData("Chance for the mutated virus to bypass existing immunity (recovered or vaccinated).", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
             {"Infection Rate", new TooltipData("The base transmission probability for this specific mutated strain.", "Float (Percentage)", "0.01 (1%) to 1.0 (100%)")},
             {"Incubation (Days)", new TooltipData("Days an agent remains asymptomatic but infectious before showing symptoms/recovering.", "Float (Days)", "1.0 to 14.0+")},
             {"Trigger Mutation", new TooltipData("Immediately unleashes the mutated strain into the existing infected population.", "Action Button", "N/A")},
             
-            // Vaccine Parameters
             {"Vaccine Strain", new TooltipData("The specific virus strain ID this new vaccine wave protects against.", "Integer", "Matches active strain ID")},
             {"Supply Doses", new TooltipData("Total number of vaccines available for distribution across all clinics.", "Integer", "100 to Population Size")},
             {"Base Efficacy", new TooltipData("The percentage chance this vaccine successfully grants immunity.", "Float (Percentage)", "0.0 (0%) to 1.0 (100%)")},
@@ -248,7 +254,7 @@ public class SimulationManager : MonoBehaviour
                 advancedBox.Add(WrapWithInfoButton(bedsField, "Beds Per Hospital"));
                 
                 commToggle = new Toggle("Vaccines at Commercial:") { value = distributeToCommercial }; 
-                commToggle.AddToClassList("custom-unity-toggle"); // Uses new CSS styling
+                commToggle.AddToClassList("custom-unity-toggle"); 
                 commToggle.RegisterValueChangedCallback(evt => distributeToCommercial = evt.newValue); 
                 advancedBox.Add(WrapWithInfoButton(commToggle, "Vaccines at Commercial"));
 
@@ -256,7 +262,7 @@ public class SimulationManager : MonoBehaviour
 
                 var importBox = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 20, paddingTop = 15, borderTopWidth = 1, borderTopColor = new Color(0.3f, 0.3f, 0.3f) } };
                 
-                loadSetupBtn = new Button { text = "LOAD SAVE FILE" };
+                loadSetupBtn = new Button { text = "Load Save File" };
                 loadSetupBtn.AddToClassList("action-button"); loadSetupBtn.style.flexGrow = 1; loadSetupBtn.clicked += PromptLoadFile;
                 importBox.Add(loadSetupBtn);
                 if (startSimButton != null && startSimButton.parent != null) startSimButton.parent.Add(importBox); else setupContainer.Add(importBox);
@@ -274,29 +280,48 @@ public class SimulationManager : MonoBehaviour
             runtimeHeader.Add(headerDayLabel); runtimeHeader.Add(headerTimeLabel); runtimeHeader.Add(headerStatusLabel); runtimeHeader.Add(headerSpeedLabel);
             if (runtimeContainer != null) { runtimeContainer.style.justifyContent = Justify.FlexStart; runtimeContainer.style.flexShrink = 1; runtimeContainer.style.minHeight = 0; runtimeContainer.Insert(0, runtimeHeader); }
 
-            playButton = root.Q<Button>("PlayButton"); fastButton = root.Q<Button>("FastButton"); resetButton = root.Q<Button>("ResetButton"); exportBtn = root.Q<Button>("ExportButton"); cancelAttemptBtn = root.Q<Button>("CancelAttemptButton");
+            playButton = root.Q<Button>("PlayButton"); fastButton = root.Q<Button>("FastButton"); resetButton = root.Q<Button>("ResetButton"); exportBtn = root.Q<Button>("ExportButton"); 
+            float standardWidth = 75f; float standardHeight = 36f; float standardPadding = 8f; 
             
             if (playButton != null && playButton.parent != null) { 
                 playButton.parent.style.flexShrink = 0; 
                 playButton.parent.style.justifyContent = Justify.Center; 
                 
-                var runtimeControlsTitle = new Label("RUNTIME CONTROLS") { style = { color = Color.white, fontSize = 12, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 8, marginTop = 8, paddingLeft = 15, unityTextAlign = TextAnchor.MiddleLeft } };
+                runtimeControlsTitle = new Label("RUNTIME CONTROLS") { style = { color = Color.white, fontSize = 12, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 8, marginTop = 8, paddingLeft = 15, unityTextAlign = TextAnchor.MiddleLeft } };
                 playButton.parent.parent.Insert(playButton.parent.parent.IndexOf(playButton.parent), runtimeControlsTitle);
+
+                branchControlsRow = new VisualElement { style = { flexDirection = FlexDirection.Row, justifyContent = Justify.Center, marginTop = 8, display = DisplayStyle.None } };
+                
+                discardAttemptBtn = new Button { text = "DISCARD TIMELINE" };
+                discardAttemptBtn.AddToClassList("action-button");
+                discardAttemptBtn.style.paddingLeft = 12;
+                discardAttemptBtn.style.paddingRight = 12;
+                discardAttemptBtn.style.height = standardHeight;
+                discardAttemptBtn.style.marginRight = 10;
+                discardAttemptBtn.clicked += CancelAttempt;
+
+                commitAttemptBtn = new Button { text = "COMMIT TIMELINE" };
+                commitAttemptBtn.AddToClassList("action-button");
+                commitAttemptBtn.style.paddingLeft = 12;
+                commitAttemptBtn.style.paddingRight = 12;
+                commitAttemptBtn.style.height = standardHeight;
+                commitAttemptBtn.clicked += CommitAttempt;
+
+                branchControlsRow.Add(discardAttemptBtn);
+                branchControlsRow.Add(commitAttemptBtn);
+                playButton.parent.parent.Insert(playButton.parent.parent.IndexOf(playButton.parent) + 1, branchControlsRow);
             }
 
-            float standardWidth = 75f; float standardHeight = 36f; float standardPadding = 8f; 
             if (resetButton != null) { resetButton.style.backgroundImage = null; resetButton.AddToClassList("action-button"); resetButton.style.width = standardWidth; resetButton.style.height = standardHeight; resetButton.clicked += ResetSimulation; }
             if (exportBtn != null) { exportBtn.style.backgroundImage = null; exportBtn.AddToClassList("action-button"); exportBtn.style.width = standardWidth; exportBtn.style.height = standardHeight; exportBtn.clicked += PromptSaveFile; }
             if (playButton != null) { StyleIconButton(playButton, playIcon, standardWidth, standardHeight, standardPadding); playButton.clicked += TogglePlayPause; }
             if (fastButton != null) { StyleIconButton(fastButton, fastForwardIcon, standardWidth, standardHeight, standardPadding); fastButton.clicked += CycleSpeed; }
-            if (cancelAttemptBtn != null) { cancelAttemptBtn.text = "CANCEL ATTEMPT"; cancelAttemptBtn.style.backgroundImage = null; cancelAttemptBtn.AddToClassList("action-button"); cancelAttemptBtn.clicked += CancelAttempt; }
             UpdateButtonVisibility();
 
             colorToggle = root.Q<Toggle>("ColorToggle"); socialDistanceToggle = root.Q<Toggle>("SocialDistanceToggle"); lockdownToggle = root.Q<Toggle>("LockdownToggle");
             
             if (lockdownToggle != null) { lockdownToggle.RegisterValueChangedCallback(evt => { isLockdown = evt.newValue; }); }
 
-            // USE CSS TO FORMAT UNITY-STYLE TOGGLES
             if (colorToggle != null) colorToggle.AddToClassList("custom-unity-toggle");
             if (socialDistanceToggle != null) socialDistanceToggle.AddToClassList("custom-unity-toggle");
             if (lockdownToggle != null) lockdownToggle.AddToClassList("custom-unity-toggle");
@@ -398,7 +423,7 @@ public class SimulationManager : MonoBehaviour
         btn.style.borderTopRightRadius = 8;
         btn.style.borderBottomLeftRadius = 8;
         btn.style.borderBottomRightRadius = 8;
-        btn.style.backgroundColor = new Color(0.34f, 0.34f, 0.34f, 1f);  // Unity grey fill
+        btn.style.backgroundColor = new Color(0.34f, 0.34f, 0.34f, 1f);  
         btn.style.borderTopWidth = 1;
         btn.style.borderBottomWidth = 1;
         btn.style.borderLeftWidth = 1;
@@ -418,11 +443,13 @@ public class SimulationManager : MonoBehaviour
 
         btn.RegisterCallback<PointerEnterEvent>(evt => {
             btn.style.backgroundColor = new Color(0.42f, 0.42f, 0.42f, 1f);
-            ShowTooltip(key, btn);
+            if (SimulationManager.Instance != null && SimulationManager.Instance.HasTooltip(key))
+                SimulationManager.Instance.ShowTooltip(key, btn);
         });
         btn.RegisterCallback<PointerLeaveEvent>(evt => {
             btn.style.backgroundColor = new Color(0.34f, 0.34f, 0.34f, 1f);
-            HideTooltip();
+            if (SimulationManager.Instance != null)
+                SimulationManager.Instance.HideTooltip();
         });
 
         return btn;
@@ -434,7 +461,6 @@ public class SimulationManager : MonoBehaviour
         var parent = field.parent;
         var index = parent.IndexOf(field);
         
-        // CRITICAL FIX: Width set to 100% so the FlexGrow pushes the button perfectly to the edge
         var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, width = Length.Percent(100) } };
         field.style.flexGrow = 1; 
         
@@ -446,14 +472,12 @@ public class SimulationManager : MonoBehaviour
 
     private VisualElement WrapWithInfoButton(VisualElement field, string key)
     {
-        // CRITICAL FIX: Width set to 100% so the FlexGrow pushes the button perfectly to the edge
         var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, width = Length.Percent(100) } };
         field.style.flexGrow = 1; 
         row.Add(field);
         if (tooltips.ContainsKey(key)) row.Add(CreateInfoButton(key));
         return row;
     }
-    // ------------------------------------
 
     private void StyleIconButton(Button btn, Texture2D icon, float btnWidth, float btnHeight, float iconPadding) { btn.text = ""; btn.Clear(); btn.style.backgroundImage = null; btn.AddToClassList("action-button"); btn.style.width = btnWidth; btn.style.height = btnHeight; btn.style.paddingTop = iconPadding; btn.style.paddingBottom = iconPadding; btn.style.paddingLeft = iconPadding; btn.style.paddingRight = iconPadding; var iconVisual = new VisualElement { name = "btn-icon" }; if (icon != null) iconVisual.style.backgroundImage = new StyleBackground(icon); iconVisual.style.unityBackgroundImageTintColor = Color.white; iconVisual.style.unityBackgroundScaleMode = ScaleMode.ScaleToFit; iconVisual.style.width = Length.Percent(100); iconVisual.style.height = Length.Percent(100); iconVisual.style.alignSelf = Align.Center; btn.Add(iconVisual); }
     private void TogglePlayPause() { if (isExploringPast) { BranchTimeline(currentViewDay); isExploringPast = false; } isPaused = !isPaused; var iconEl = playButton.Q<VisualElement>("btn-icon"); if (isPaused) { if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = 0f; if (iconEl != null && playIcon != null) iconEl.style.backgroundImage = new StyleBackground(playIcon); } else { if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = fastSpeeds[currentFastIndex]; if (iconEl != null && pauseIcon != null) iconEl.style.backgroundImage = new StyleBackground(pauseIcon); } UpdateHUDDisplay(); }
@@ -470,7 +494,13 @@ public class SimulationManager : MonoBehaviour
         string filePath = EditorUtility.SaveFilePanel("Save Simulation State", "", "Simulation_Day_" + furthestRecordedDay, "sim"); 
         if (string.IsNullOrEmpty(filePath)) return; 
         
-        loadingOverlay.Show("SAVING TIMELINE TO DISK..."); 
+        isProcessingData = true;
+        loadingOverlay.Show("SAVING FILE... PLEASE WAIT"); 
+        
+        var progressHandler = new Progress<float>(percent => {
+            if (!Application.isPlaying || this == null) return;
+            loadingOverlay.SetProgress(percent, $"SAVING FILE... {(int)(percent * 100)}% PLEASE WAIT");
+        });
         
         int d = 0, s = 0, e = 0, inf = 0, r = 0, v = 0; 
         for(int i = 0; i < agents.Length; i++) { 
@@ -492,8 +522,12 @@ public class SimulationManager : MonoBehaviour
             savedDay = Mathf.FloorToInt(realTime / realSecondsPerInGameDay) + 1 
         }; 
         
-        await SimulationSerializer.SaveSimulationToFileAsync(filePath, saveData, timelineHistory); 
-        loadingOverlay.Hide(); 
+        await SimulationSerializer.SaveSimulationToFileAsync(filePath, saveData, timelineHistory, asyncTaskToken.Token, progressHandler); 
+        
+        if (Application.isPlaying && this != null) {
+            loadingOverlay.Hide(); 
+            isProcessingData = false;
+        }
 #else
         Debug.LogWarning("Native OS Save Dialog is Editor-Only right now! Install StandaloneFileBrowser package for final build."); 
 #endif
@@ -505,33 +539,49 @@ public class SimulationManager : MonoBehaviour
         string filePath = EditorUtility.OpenFilePanel("Load Simulation State", "", "sim"); 
         if (string.IsNullOrEmpty(filePath)) return; 
         
-        loadingOverlay.Show("DECOMPRESSING TIMELINE..."); 
-        var result = await SimulationSerializer.LoadSimulationFromFileAsync(filePath); 
+        ForcePauseUI();
+
+        isProcessingData = true;
+        loadingOverlay.Show("LOADING FILE... PLEASE WAIT"); 
+        
+        var progressHandler = new Progress<float>(percent => {
+            if (!Application.isPlaying || this == null) return;
+            loadingOverlay.SetProgress(percent, $"LOADING FILE... {(int)(percent * 100)}% PLEASE WAIT");
+        });
+        
+        var result = await SimulationSerializer.LoadSimulationFromFileAsync(filePath, asyncTaskToken.Token, progressHandler); 
+        
+        if (!Application.isPlaying || this == null) return;
+
         loadingOverlay.Hide(); 
+        isProcessingData = false;
         
         if (result.paramsData == null || result.history == null) { 
-            Debug.LogError("Failed to load save file."); 
             return; 
         } 
         
+        ResetSimulation(); 
+        
         var pData = result.paramsData; 
-        popInput.value = pData.popSize.ToString(); 
-        radiusInput.value = pData.radius.ToString(); 
-        transRateInput.value = pData.transRate.ToString(); 
-        recoveryInput.value = pData.recTime.ToString(); 
-        mortalityInput.value = pData.mortRate.ToString(); 
-        immDurField.value = pData.immDuration; 
-        histRecField.value = pData.histRecMult; 
-        hospTransField.value = pData.hospTransMult; 
-        bedsField.value = pData.beds; 
-        commToggle.value = pData.distComm; 
-        natImmSlider.value = pData.natImmunity; 
-        histImmSlider.value = pData.histImmunity; 
-        lockAbidSlider.value = pData.lockAbidance; 
+        
+        if (popInput != null) popInput.value = pData.popSize.ToString(); 
+        if (radiusInput != null) radiusInput.value = pData.radius.ToString(); 
+        if (transRateInput != null) transRateInput.value = pData.transRate.ToString(); 
+        if (recoveryInput != null) recoveryInput.value = pData.recTime.ToString(); 
+        if (mortalityInput != null) mortalityInput.value = pData.mortRate.ToString(); 
+        if (immDurField != null) immDurField.value = pData.immDuration; 
+        if (histRecField != null) histRecField.value = pData.histRecMult; 
+        if (hospTransField != null) hospTransField.value = pData.hospTransMult; 
+        if (bedsField != null) bedsField.value = pData.beds; 
+        if (commToggle != null) commToggle.value = pData.distComm; 
+        if (natImmSlider != null) natImmSlider.value = pData.natImmunity; 
+        if (histImmSlider != null) histImmSlider.value = pData.histImmunity; 
+        if (lockAbidSlider != null) lockAbidSlider.value = pData.lockAbidance; 
         
         pendingImportData = pData; 
         timelineHistory = result.history; 
         furthestRecordedDay = pData.savedDay; 
+        
         StartSimulationFromUI(); 
 #else
         Debug.LogWarning("Native OS Load Dialog is Editor-Only right now! Install StandaloneFileBrowser package for final build."); 
@@ -544,8 +594,40 @@ public class SimulationManager : MonoBehaviour
     private void CancelScrubPreview() { if (!isExploringPast) return; isExploringPast = false; currentViewDay = furthestRecordedDay; SimulationAgent[] snapshot = timelineHistory[furthestRecordedDay]; agents.CopyFrom(snapshot); realTime = (furthestRecordedDay - 1) * realSecondsPerInGameDay; if (AgentRenderer.Instance != null) AgentRenderer.Instance.UpdateRender(agents, realTime, agentGroundOffset); }
     private void BranchTimeline(int branchDay) { if (!hasGhostBaseline) LockNewBaseline(); List<int> daysToDelete = timelineHistory.Keys.Where(day => day > branchDay).ToList(); foreach (var day in daysToDelete) timelineHistory.Remove(day); furthestRecordedDay = branchDay; if (lineGraph != null) lineGraph.maxScrubableDay = furthestRecordedDay; if (lineGraph != null) lineGraph.TruncateData(branchDay); if (activeCasesGraph != null) activeCasesGraph.TruncateData(branchDay); UpdateButtonVisibility(); }
     private void LockNewBaseline() { baselineHistory = new Dictionary<int, SimulationAgent[]>(timelineHistory); hasGhostBaseline = true; if (lineGraph != null) lineGraph.SetGhostBaseline(); UpdateButtonVisibility(); }
-    private void CancelAttempt() { if (!hasGhostBaseline) return; timelineHistory = new Dictionary<int, SimulationAgent[]>(baselineHistory); furthestRecordedDay = timelineHistory.Keys.Max(); isExploringPast = false; currentViewDay = furthestRecordedDay; if (lineGraph != null) lineGraph.RestoreFromGhost(); ScrubToHistoricalDay(furthestRecordedDay); isExploringPast = false; UpdateButtonVisibility(); }
-    private void UpdateButtonVisibility() { if (cancelAttemptBtn != null) cancelAttemptBtn.style.display = hasGhostBaseline ? DisplayStyle.Flex : DisplayStyle.None; }
+    
+    private void CancelAttempt() { 
+        if (!hasGhostBaseline) return; 
+        timelineHistory = new Dictionary<int, SimulationAgent[]>(baselineHistory); 
+        furthestRecordedDay = timelineHistory.Keys.Max(); 
+        isExploringPast = false; 
+        currentViewDay = furthestRecordedDay; 
+        if (lineGraph != null) lineGraph.RestoreFromGhost(); 
+        ScrubToHistoricalDay(furthestRecordedDay); 
+        isExploringPast = false; 
+        hasGhostBaseline = false; 
+        UpdateButtonVisibility(); 
+    }
+
+    private void CommitAttempt() {
+        if (!hasGhostBaseline) return;
+        baselineHistory.Clear();
+        hasGhostBaseline = false;
+        if (lineGraph != null) lineGraph.ClearGhostBaseline();
+        UpdateButtonVisibility();
+    }
+
+    private void UpdateButtonVisibility() { 
+        if (branchControlsRow != null) branchControlsRow.style.display = hasGhostBaseline ? DisplayStyle.Flex : DisplayStyle.None; 
+        if (runtimeControlsTitle != null) {
+            if (hasGhostBaseline) {
+                runtimeControlsTitle.text = "RUNTIME CONTROLS (Alternate Timeline Active)";
+                runtimeControlsTitle.style.color = new Color(1f, 0.7f, 0.1f, 1f);
+            } else {
+                runtimeControlsTitle.text = "RUNTIME CONTROLS";
+                runtimeControlsTitle.style.color = Color.white;
+            }
+        }
+    }
 
     private VisualElement CreateSliderRow(string labelText, float min, float max, float defaultVal, out Slider sliderReference, System.Action<float> onValueChanged) { 
         var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 2 } }; 
@@ -690,7 +772,14 @@ public class SimulationManager : MonoBehaviour
     float3 GetPersonalOffset(int agentIndex) { var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(agentIndex * 7919)); return new float3(rng.NextFloat(-destinationOffsetRange, destinationOffsetRange), 0f, rng.NextFloat(-destinationOffsetRange, destinationOffsetRange)); }
     int FindNearestWaypointIndex(float3 target) { float bestDist = float.MaxValue; int bestIdx = 0; for (int i = 0; i < waypoints.Length; i++) { float dist = math.distancesq(new float3(target.x, 0f, target.z), new float3(waypoints[i].x, 0f, waypoints[i].z)); if (dist < bestDist) { bestDist = dist; bestIdx = i; } } return bestIdx; }
     
-    void OnDestroy() { DisposeArrays(); }
+    void OnDestroy() { 
+        Application.wantsToQuit -= OnWantsToQuit; 
+        if (asyncTaskToken != null) {
+            asyncTaskToken.Cancel(); 
+            asyncTaskToken.Dispose();
+        }
+        DisposeArrays(); 
+    }
     
     private void DisposeArrays() { 
         if (agents.IsCreated) agents.Dispose(); 

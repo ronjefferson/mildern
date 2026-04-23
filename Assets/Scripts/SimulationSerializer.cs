@@ -4,47 +4,61 @@ using System.IO;
 using System.IO.Compression;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Runtime.InteropServices;
+using Unity.Collections.LowLevel.Unsafe;
 
 [Serializable]
 public class SimSaveData
 {
-    // Sliders & Parameters
     public int popSize;
     public float radius, transRate, recTime, mortRate;
     public float natImmunity, immDuration, histImmunity, histRecMult, lockAbidance, hospTransMult;
     public int beds;
     public bool distComm;
-    
-    // Agent Macro States
     public int s, e, i, r, v, d;
     public int savedDay; 
 }
 
 public static class SimulationSerializer
 {
-    public static async Task SaveSimulationToFileAsync(string filePath, SimSaveData parameters, Dictionary<int, SimulationAgent[]> history)
+    public static async Task SaveSimulationToFileAsync(string filePath, SimSaveData parameters, Dictionary<int, SimulationAgent[]> history, CancellationToken token, IProgress<float> progress = null)
     {
+        string jsonParams = "";
+        try {
+            jsonParams = JsonUtility.ToJson(parameters);
+        } catch (Exception ex) {
+            Debug.LogError("Failed to serialize parameters: " + ex.Message);
+            return;
+        }
+
         await Task.Run(() =>
         {
             try
             {
-                using (FileStream fileStream = new FileStream(filePath, FileMode.Create))
+                string tempPath = filePath + ".tmp";
+                bool wasCancelled = false;
+
+                using (FileStream fileStream = new FileStream(tempPath, FileMode.Create))
                 using (GZipStream gzipStream = new GZipStream(fileStream, CompressionMode.Compress))
                 using (BinaryWriter writer = new BinaryWriter(gzipStream))
                 {
-                    // 1. Write the parameters
-                    string jsonParams = JsonUtility.ToJson(parameters);
                     writer.Write(jsonParams);
 
-                    // 2. Write the amount of history days
                     writer.Write(history.Count);
-                    int agentSize = Marshal.SizeOf(typeof(SimulationAgent));
+                    int agentSize = UnsafeUtility.SizeOf<SimulationAgent>();
+                    
+                    int processed = 0;
+                    int totalDays = history.Count;
 
-                    // 3. Dump the RAW MEMORY of the structs perfectly to disk
                     foreach (var kvp in history)
                     {
-                        writer.Write(kvp.Key); // Day Number
+                        if (token.IsCancellationRequested) {
+                            wasCancelled = true;
+                            break;
+                        }
+
+                        writer.Write(kvp.Key);
                         SimulationAgent[] agents = kvp.Value;
                         writer.Write(agents.Length); 
 
@@ -57,43 +71,62 @@ public static class SimulationSerializer
                         }
                         
                         writer.Write(bytes);
+                        
+                        processed++;
+                        progress?.Report((float)processed / totalDays);
                     }
                 }
+
+                if (wasCancelled) {
+                    if (File.Exists(tempPath)) File.Delete(tempPath);
+                    return;
+                }
+
+                if (File.Exists(filePath)) File.Delete(filePath);
+                File.Move(tempPath, filePath);
             }
             catch (Exception ex)
             {
-                Debug.LogError("Failed to save simulation: " + ex.Message);
+                Debug.LogError("Failed to save simulation to disk: " + ex.Message);
             }
-        });
+        }, token);
     }
 
-    public static async Task<(SimSaveData paramsData, Dictionary<int, SimulationAgent[]> history)> LoadSimulationFromFileAsync(string filePath)
+    public static async Task<(SimSaveData paramsData, Dictionary<int, SimulationAgent[]> history)> LoadSimulationFromFileAsync(string filePath, CancellationToken token, IProgress<float> progress = null)
     {
-        return await Task.Run(() =>
-        {
-            SimSaveData loadedParams = null;
-            Dictionary<int, SimulationAgent[]> loadedHistory = new Dictionary<int, SimulationAgent[]>();
+        string jsonParams = null;
+        Dictionary<int, SimulationAgent[]> loadedHistory = new Dictionary<int, SimulationAgent[]>();
 
+        await Task.Run(() =>
+        {
             try
             {
                 using (FileStream fileStream = new FileStream(filePath, FileMode.Open))
                 using (GZipStream gzipStream = new GZipStream(fileStream, CompressionMode.Decompress))
                 using (BinaryReader reader = new BinaryReader(gzipStream))
                 {
-                    string jsonParams = reader.ReadString();
-                    loadedParams = JsonUtility.FromJson<SimSaveData>(jsonParams);
+                    jsonParams = reader.ReadString();
 
                     int dayCount = reader.ReadInt32();
-                    int agentSize = Marshal.SizeOf(typeof(SimulationAgent));
+                    int agentSize = UnsafeUtility.SizeOf<SimulationAgent>();
 
-                    // Perfectly reconstruct the RAM blocks
                     for (int d = 0; d < dayCount; d++)
                     {
+                        if (token.IsCancellationRequested) return;
+
                         int dayNumber = reader.ReadInt32();
                         int agentCount = reader.ReadInt32();
                         
                         SimulationAgent[] agents = new SimulationAgent[agentCount];
-                        byte[] bytes = reader.ReadBytes(agentCount * agentSize);
+                        
+                        byte[] bytes = new byte[agentCount * agentSize];
+                        int totalRead = 0;
+                        while (totalRead < bytes.Length)
+                        {
+                            int bytesRead = reader.Read(bytes, totalRead, bytes.Length - totalRead);
+                            if (bytesRead == 0) throw new EndOfStreamException("Save file unexpectedly ended.");
+                            totalRead += bytesRead;
+                        }
                         
                         GCHandle handle = GCHandle.Alloc(agents, GCHandleType.Pinned);
                         try {
@@ -103,16 +136,30 @@ public static class SimulationSerializer
                         }
                         
                         loadedHistory[dayNumber] = agents;
+                        
+                        progress?.Report((float)(d + 1) / dayCount);
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogError("Failed to load simulation: " + ex.Message);
-                return (null, null);
+                Debug.LogError("Failed to read simulation file: " + ex.Message);
+                jsonParams = null; 
             }
+        }, token);
 
-            return (loadedParams, loadedHistory);
-        });
+        if (token.IsCancellationRequested || string.IsNullOrEmpty(jsonParams)) {
+            return (null, null);
+        }
+
+        SimSaveData loadedParams = null;
+        try {
+            loadedParams = JsonUtility.FromJson<SimSaveData>(jsonParams);
+        } catch (Exception ex) {
+            Debug.LogError("Failed to parse simulation parameters: " + ex.Message);
+            return (null, null);
+        }
+
+        return (loadedParams, loadedHistory);
     }
 }

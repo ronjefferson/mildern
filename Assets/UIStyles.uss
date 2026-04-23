@@ -1,9 +1,7 @@
-/* 1. Tighten the spacing between rows */
 .inspector-field {
     margin-bottom: 4px;
 }
 
-/* 2. Lock the Label width so they form a perfect column */
 .inspector-field > .unity-label {
     min-width: 110px;
     color: rgb(200, 200, 200);
@@ -12,43 +10,37 @@
     -unity-text-align: middle-left;
 }
 
-/* 3. Style the ACTUAL typing box (The Fix!) */
-/* We have to specifically target text, integer, and float inputs to override the "web" look */
 .inspector-field .unity-base-text-field__input,
 .inspector-field .unity-integer-field__input,
 .inspector-field .unity-float-field__input {
-    background-color: rgb(42, 42, 42); /* Authentic Unity dark grey */
+    background-color: rgb(42, 42, 42);
     border-color: rgb(32, 32, 32);
-    border-top-color: rgb(20, 20, 20); /* Darker top border for an inset 'sunken' look */
+    border-top-color: rgb(20, 20, 20);
     border-width: 1px;
     border-radius: 3px;
     color: rgb(230, 230, 230);
-    padding: 2px 4px; /* Gives the text room to breathe */
+    padding: 2px 4px;
 }
 
-/* 4. Hover Effect (When the mouse is over the box) */
 .inspector-field .unity-base-text-field__input:hover,
 .inspector-field .unity-integer-field__input:hover,
 .inspector-field .unity-float-field__input:hover {
-    border-color: rgb(101, 101, 101); /* Lighter grey border on hover */
+    border-color: rgb(101, 101, 101);
 }
 
-/* 5. Focus Effect (When you click to type) */
 .inspector-field .unity-base-text-field__input:focus,
 .inspector-field .unity-integer-field__input:focus,
 .inspector-field .unity-float-field__input:focus {
-    border-color: rgb(58, 114, 176); /* Authentic Unity Blue highlight! */
+    border-color: rgb(58, 114, 176);
     background-color: rgb(50, 50, 50);
 }
 
-/* 6. Fix for Sliders (So the track matches) */
 .inspector-field .unity-base-slider__tracker {
     background-color: rgb(42, 42, 42);
     border-color: rgb(32, 32, 32);
     border-radius: 2px;
 }
 
-/* Style for our new Tab Buttons */
 .tab-button {
     flex-grow: 1;
     height: 30px;
@@ -64,7 +56,6 @@
     background-color: rgb(60, 60, 60);
 }
 
-/* 1. The Container that holds the tabs (gives a subtle line underneath the whole row) */
 .tab-bar {
     flex-direction: row;
     border-bottom-width: 1px;
@@ -73,39 +64,31 @@
     background-color: rgb(40, 40, 40);
 }
 
-/* 2. The Base Tab Button (Inactive State) */
 .tab-button {
     flex-grow: 1;
     height: 35px;
     background-color: transparent;
-    color: rgb(150, 150, 150); /* Dimmed text */
+    color: rgb(150, 150, 150);
     -unity-font-style: bold;
     border-width: 0px;
     border-bottom-width: 3px;
-    border-bottom-color: transparent; /* Invisible underline */
+    border-bottom-color: transparent;
     border-radius: 0px;
     margin: 0px;
     padding: 0px;
 }
 
-/* 3. The Hover State */
 .tab-button:hover {
     background-color: rgb(50, 50, 50);
     color: rgb(200, 200, 200);
 }
 
-/* 4. The Active Tab State (The Magic Class!) */
 .tab-button--active {
-    color: white; /* Bright text */
-    background-color: rgb(56, 56, 56); /* Slightly lighter background to match the panel */
-    border-bottom-color: rgb(58, 114, 176); /* Unity Blue Underline! */
+    color: white;
+    background-color: rgb(56, 56, 56);
+    border-bottom-color: rgb(58, 114, 176);
 }
 
-/* ========================================== */
-/* NATIVE UNITY BUTTON STYLES                 */
-/* ========================================== */
-
-/* 1. The Standard Unity Editor Button (Dark Grey) */
 .action-button {
     background-color: rgb(88, 88, 88);
     color: rgb(230, 230, 230);
@@ -115,7 +98,7 @@
     padding: 4px 10px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    transition-duration: 0.1s; /* Smooth hover transition */
+    transition-duration: 0.1s;
 }
 
 .action-button:hover {
@@ -124,10 +107,9 @@
 }
 
 .action-button:active {
-    background-color: rgb(70, 70, 70); /* Sinks in when clicked */
+    background-color: rgb(70, 70, 70);
 }
 
-/* 2. Primary Action Button (Unity Blue) */
 .action-button--primary {
     background-color: rgb(58, 114, 176);
     border-color: rgb(30, 60, 95);
@@ -142,7 +124,6 @@
     background-color: rgb(45, 95, 150);
 }
 
-/* 3. Danger Action Button (Muted Red) */
 .action-button--danger {
     background-color: rgb(160, 60, 60);
     border-color: rgb(90, 30, 30);
@@ -157,18 +138,14 @@
     background-color: rgb(130, 45, 45);
 }
 
-/* ========================================== */
-/* SIMULATION STATS DASHBOARD                 */
-/* ========================================== */
-
 .stats-dashboard {
     background-color: rgb(35, 35, 35);
     flex-direction: column;
     flex-wrap: wrap;
-    align-content: flex-start; /* Forces columns to pack to the left */
+    align-content: flex-start;
     align-self: stretch;
     flex-grow: 1;
-    padding: 10px 0px; /* Stripped left/right padding to sit flush with existing elements */
+    padding: 10px 0px;
     border-top-width: 1px;
     border-top-color: rgb(55, 55, 55);
     margin-bottom: 10px;
@@ -176,7 +153,7 @@
 
 .stats-item {
     flex-direction: row;
-    justify-content: flex-start; /* Pushes both title and value strictly to the left */
+    justify-content: flex-start;
     align-items: center;
     width: 180px;
     margin-right: 10px;
@@ -184,25 +161,21 @@
 }
 
 .stats-title {
-    color: white; /* Forced pure white */
+    color: white;
     font-size: 11px;
     -unity-font-style: bold;
     -unity-text-align: middle-left;
-    width: 85px; /* Fixed width creates a perfect vertical column for the numbers! */
+    width: 85px;
     padding: 0; margin: 0;
 }
 
 .stats-value {
-    color: white; /* Forced pure white */
+    color: white;
     font-size: 12px;
     -unity-font-style: bold;
-    -unity-text-align: middle-left; /* Left align next to the title */
+    -unity-text-align: middle-left;
     padding: 0; margin: 0;
 }
-
-/* ========================================== */
-/* GRAPH CONTAINERS & AXES                    */
-/* ========================================== */
 
 .graph-container {
     flex-grow: 1;
@@ -231,11 +204,6 @@
     padding-right: 5px;
 }
 
-/* ========================================== */
-/* CUSTOM FOLDOUT STYLING                     */
-/* ========================================== */
-
-/* 1. The Header Box (Adds background color and border) */
 .custom-foldout > .unity-foldout__toggle {
     background-color: rgb(50, 50, 50);
     border-color: rgb(20, 20, 20);
@@ -250,27 +218,20 @@
     background-color: rgb(65, 65, 65);
 }
 
-/* 2. The Header Text (Forces pure white) */
 .custom-foldout .unity-toggle__text {
     color: white;
     -unity-font-style: bold;
     font-size: 11px;
 }
 
-/* 3. The Arrow Icon (Forces it to glow white instead of dark grey) */
 .custom-foldout .unity-toggle__checkmark {
     -unity-background-image-tint-color: white;
 }
 
-/* 4. The Content Container (Strips Unity's massive default left-indent) */
 .custom-foldout > .unity-foldout__content {
     margin-left: 0px;
     padding-left: 2px;
 }
-
-/* ========================================== */
-/* INSPECTOR TOGGLES                          */
-/* ========================================== */
 
 .inspector-toggle {
     flex-direction: row;
@@ -281,58 +242,20 @@
     padding-right: 2px;
 }
 
-/* Forces the label to the left, white text, bold */
 .inspector-toggle > .unity-toggle__label {
     color: white;
     font-size: 11px;
     -unity-font-style: bold;
-    min-width: 140px; /* Keeps all labels aligned perfectly vertically */
+    min-width: 140px;
     padding: 0;
     margin: 0;
 }
 
-/* Pushes the actual checkbox to the far right */
 .inspector-toggle > .unity-toggle__input {
     flex-grow: 1;
     justify-content: flex-end;
     margin: 0;
 }
-
-/*
-!* 1. Force the Toggle to take full width and push the box to the right *!
-.custom-unity-toggle {
-    flex-grow: 1;
-    flex-direction: row;
-    align-items: center;
-    margin-top: 2px;
-    margin-bottom: 2px;
-}
-
-.custom-unity-toggle > .unity-toggle__label {
-    flex-grow: 1; !* Pushes the checkbox to the far right *!
-    color: rgb(217, 217, 217);
-    -unity-text-align: middle-left;
-    padding-left: 0px;
-}
-
-!* 2. Style the checkbox container to be a rigid gray box *!
-.custom-unity-toggle > .unity-toggle__input {
-    flex-grow: 0;
-    flex-shrink: 0;
-    width: 16px;
-    height: 16px;
-    background-color: rgb(40, 40, 40); !* Unity dark gray *!
-    border-color: rgb(20, 20, 20);
-    border-width: 1px;
-    border-radius: 3px;
-    margin-right: 5px; !* Spacing before the [i] button *!
-}
-
-!* 3. Make the checkmark vector white when checked *!
-.custom-unity-toggle > .unity-toggle__input:checked > .unity-toggle__checkmark {
-    -unity-background-image-tint-color: white;
-}
-*/
 
 .custom-unity-toggle {
     flex-grow: 1;
@@ -396,8 +319,3 @@
 .custom-unity-toggle:checked > .unity-toggle__label {
     color: rgb(217, 217, 217);
 }
-
-
-
-
-
