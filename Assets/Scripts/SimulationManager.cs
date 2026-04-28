@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
 using System;
+using SFB; 
 using Random = UnityEngine.Random;
 
 #if UNITY_EDITOR
@@ -122,6 +123,10 @@ public class SimulationManager : MonoBehaviour
     public float realSecondsPerInGameDay = 60f; public float agentSpeed = 5f;
     public float waypointReachDistance = 5f; public float destinationOffsetRange = 8f;
     public float stuckTimeoutSimHours = 8f; public float agentGroundOffset = 0f;
+
+    [Header("Editor Debug Settings")]
+    public bool showWaypointsGizmo = false;
+    public bool showSpatialGridGizmo = false;
 
     [Header("References")]
     public WaypointData waypointData; public float cellSize = 10f;
@@ -490,8 +495,9 @@ public class SimulationManager : MonoBehaviour
         if (!initialized) return; 
         ForcePauseUI(); 
         
-#if UNITY_EDITOR
-        string filePath = EditorUtility.SaveFilePanel("Save Simulation State", "", "Simulation_Day_" + furthestRecordedDay, "sim"); 
+        var extensions = new[] { new ExtensionFilter("Simulation Save", "sim") };
+        string filePath = StandaloneFileBrowser.SaveFilePanel("Save Simulation State", "", "Simulation_Day_" + furthestRecordedDay, extensions);
+        
         if (string.IsNullOrEmpty(filePath)) return; 
         
         isProcessingData = true;
@@ -528,19 +534,18 @@ public class SimulationManager : MonoBehaviour
             loadingOverlay.Hide(); 
             isProcessingData = false;
         }
-#else
-        Debug.LogWarning("Native OS Save Dialog is Editor-Only right now! Install StandaloneFileBrowser package for final build."); 
-#endif
     }
 
     private async void PromptLoadFile() 
     { 
-#if UNITY_EDITOR
-        string filePath = EditorUtility.OpenFilePanel("Load Simulation State", "", "sim"); 
-        if (string.IsNullOrEmpty(filePath)) return; 
-        
         ForcePauseUI();
 
+        var extensions = new[] { new ExtensionFilter("Simulation Save", "sim") };
+        string[] paths = StandaloneFileBrowser.OpenFilePanel("Load Simulation State", "", extensions, false);
+        
+        if (paths == null || paths.Length == 0 || string.IsNullOrEmpty(paths[0])) return; 
+        string filePath = paths[0];
+        
         isProcessingData = true;
         loadingOverlay.Show("LOADING FILE... PLEASE WAIT"); 
         
@@ -583,9 +588,6 @@ public class SimulationManager : MonoBehaviour
         furthestRecordedDay = pData.savedDay; 
         
         StartSimulationFromUI(); 
-#else
-        Debug.LogWarning("Native OS Load Dialog is Editor-Only right now! Install StandaloneFileBrowser package for final build."); 
-#endif
     }
 
     private void SaveHistoricalSnapshot(int day) { SimulationAgent[] snapshot = new SimulationAgent[agents.Length]; agents.CopyTo(snapshot); timelineHistory[day] = snapshot; }
@@ -798,4 +800,70 @@ public class SimulationManager : MonoBehaviour
         if (indoorMap.IsCreated) indoorMap.Dispose(); 
         spatialGrid?.Dispose(); 
     }
+
+#if UNITY_EDITOR
+    void OnValidate()
+    {
+        // This forces the Scene View to instantly redraw the exact millisecond you click the checkbox!
+        if (UnityEditor.SceneView.lastActiveSceneView != null)
+        {
+            UnityEditor.SceneView.lastActiveSceneView.Repaint();
+        }
+    }
+
+    void OnDrawGizmos()
+    {
+        // 1. WAYPOINTS & CONNECTIONS GIZMO
+        if (showWaypointsGizmo && waypointData != null && waypointData.waypoints != null)
+        {
+            Gizmos.color = Color.cyan;
+            for (int i = 0; i < waypointData.waypoints.Length; i++)
+            {
+                Gizmos.DrawSphere(waypointData.waypoints[i], 1f);
+            }
+            
+            if (waypointData.neighborData != null)
+            {
+                Gizmos.color = new Color(1f, 0.9f, 0.2f, 0.3f); // Faint yellow for lines
+                for (int i = 0; i < waypointData.waypoints.Length; i++)
+                {
+                    int start = waypointData.neighborStart[i];
+                    int count = waypointData.neighborCount[i];
+                    for (int n = 0; n < count; n++)
+                    {
+                        int neighborIdx = waypointData.neighborData[start + n];
+                        Gizmos.DrawLine(waypointData.waypoints[i], waypointData.waypoints[neighborIdx]);
+                    }
+                }
+            }
+        }
+
+        // 2. SPATIAL GRID GIZMO
+        // The Grid ONLY exists in memory after clicking "Start Simulation" (initialized = true)
+        if (showSpatialGridGizmo && Application.isPlaying && initialized)
+        {
+            Gizmos.color = new Color(1f, 0f, 1f, 0.4f); // Transparent Magenta
+            
+            float width = spatialGrid.gridWidth * spatialGrid.cellSize;
+            float depth = spatialGrid.gridHeight * spatialGrid.cellSize;
+            Vector3 origin = new Vector3(spatialGrid.gridOrigin.x, 0.5f, spatialGrid.gridOrigin.z); // Drawn slightly above ground
+
+            // Draw vertical dividing lines
+            for (int x = 0; x <= spatialGrid.gridWidth; x++)
+            {
+                Vector3 start = origin + new Vector3(x * spatialGrid.cellSize, 0, 0);
+                Vector3 end = start + new Vector3(0, 0, depth);
+                Gizmos.DrawLine(start, end);
+            }
+
+            // Draw horizontal dividing lines
+            for (int z = 0; z <= spatialGrid.gridHeight; z++)
+            {
+                Vector3 start = origin + new Vector3(0, 0, z * spatialGrid.cellSize);
+                Vector3 end = start + new Vector3(width, 0, 0);
+                Gizmos.DrawLine(start, end);
+            }
+        }
+    }
+#endif
 }

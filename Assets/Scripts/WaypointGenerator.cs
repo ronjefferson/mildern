@@ -257,29 +257,4 @@ public class WaypointGenerator : MonoBehaviour
         return Vector3.Cross(ab, ac).magnitude * 0.5f;
     }
 #endif
-
-    void OnDrawGizmos()
-    {
-        if (waypointData == null || waypointData.waypoints == null) return;
-
-        Gizmos.color = Color.cyan;
-        for (int i = 0; i < waypointData.waypoints.Length; i++)
-            Gizmos.DrawSphere(waypointData.waypoints[i], 1f);
-
-        if (waypointData.neighborData == null) return;
-        Gizmos.color = Color.yellow;
-        for (int i = 0; i < waypointData.waypoints.Length; i++)
-        {
-            int start = waypointData.neighborStart[i];
-            int count = waypointData.neighborCount[i];
-            for (int n = 0; n < count; n++)
-            {
-                int neighborIdx = waypointData.neighborData[start + n];
-                Gizmos.DrawLine(
-                    waypointData.waypoints[i],
-                    waypointData.waypoints[neighborIdx]
-                );
-            }
-        }
-    }
 }
