@@ -1,5 +1,4 @@
 ﻿using UnityEngine;
-using UnityEngine.AI;
 using UnityEngine.InputSystem;
 using System.Collections.Generic;
 
@@ -15,16 +14,15 @@ public class BuildingManager : MonoBehaviour
     public float healthcareRatio = 0.1f;
 
     [Header("Display Settings")]
-    public bool showColors = true; // NEW: Controls the building materials
-
-    [Header("Click To Assign")]
-    public BuildingType selectedType = BuildingType.Residential;
+    public bool showColors = true;
 
     private List<Building> allBuildings = new List<Building>();
     private List<Building> residentialBuildings = new List<Building>();
     private List<Building> commercialBuildings = new List<Building>();
     private List<Building> workplaceBuildings = new List<Building>();
     private List<Building> healthcareBuildings = new List<Building>();
+    
+    public Building currentlySelectedBuilding;
 
     void Awake()
     {
@@ -36,9 +34,10 @@ public class BuildingManager : MonoBehaviour
         FindAllBuildings();
         if (autoAssignTypes)
             AutoAssignTypes();
+        else
+            UnassignAll();
     }
 
-    // NEW: Called by the UI Toggle to update all buildings at once
     public void ToggleColors(bool show)
     {
         showColors = show;
@@ -52,13 +51,11 @@ public class BuildingManager : MonoBehaviour
     {
         Building[] buildings = FindObjectsOfType<Building>();
         allBuildings.AddRange(buildings);
-        Debug.Log($"Found {allBuildings.Count} buildings");
         foreach (Building b in allBuildings)
             SortBuilding(b);
-        Debug.Log($"Pre-assigned - Residential: {residentialBuildings.Count} Commercial: {commercialBuildings.Count} Workplace: {workplaceBuildings.Count} Healthcare: {healthcareBuildings.Count}");
     }
 
-    void AutoAssignTypes()
+    public void AutoAssignTypes()
     {
         int total = allBuildings.Count;
         int residentialCount = Mathf.RoundToInt(total * residentialRatio);
@@ -82,8 +79,15 @@ public class BuildingManager : MonoBehaviour
         AssignType(shuffled, ref idx, healthcareCount,  BuildingType.Healthcare);
 
         RefreshLists();
-        Debug.Log($"Auto assigned {total} buildings");
-        Debug.Log($"Residential: {residentialBuildings.Count} Commercial: {commercialBuildings.Count} Workplace: {workplaceBuildings.Count} Healthcare: {healthcareBuildings.Count}");
+    }
+
+    public void UnassignAll()
+    {
+        foreach (Building b in allBuildings)
+        {
+            b.SetType(BuildingType.Unassigned);
+        }
+        RefreshLists();
     }
 
     void AssignType(List<Building> buildings, ref int idx, int count, BuildingType type)
@@ -111,7 +115,7 @@ public class BuildingManager : MonoBehaviour
         }
     }
 
-    void RefreshLists()
+    public void RefreshLists()
     {
         residentialBuildings.Clear();
         commercialBuildings.Clear();
@@ -125,22 +129,42 @@ public class BuildingManager : MonoBehaviour
     {
         if (Mouse.current.leftButton.wasPressedThisFrame)
         {
-            Ray ray = Camera.main.ScreenPointToRay(Mouse.current.position.ReadValue());
-            RaycastHit hit;
-            if (Physics.Raycast(ray, out hit))
+            Vector2 mousePos = Mouse.current.position.ReadValue();
+            if (mousePos.x < 0 || mousePos.y < 0 || mousePos.x > Screen.width || mousePos.y > Screen.height) return;
+
+            if (SimulationManager.Instance != null && SimulationManager.Instance.IsPointerOverPopup()) return;
+
+            if (Camera.main != null)
             {
-                Building building = hit.transform.GetComponent<Building>();
-                if (building != null)
+                Ray ray = Camera.main.ScreenPointToRay(mousePos);
+                if (Physics.Raycast(ray, out RaycastHit hit))
                 {
-                    building.SetType(selectedType);
-                    RefreshLists();
-                    Debug.Log($"Set {building.name} to {selectedType}");
+                    Building building = hit.transform.GetComponent<Building>();
+                    if (building != null)
+                    {
+                        SelectBuilding(building);
+                    }
+                    else DeselectBuilding();
                 }
+                else DeselectBuilding();
             }
         }
     }
+    
+    public void SelectBuilding(Building b)
+    {
+        if (currentlySelectedBuilding != null) currentlySelectedBuilding.SetHighlight(false);
+        currentlySelectedBuilding = b;
+        currentlySelectedBuilding.SetHighlight(true);
+        if (SimulationManager.Instance != null) SimulationManager.Instance.ShowBuildingPopup(b);
+    }
 
-    public void SetSelectedType(BuildingType type) => selectedType = type;
+    public void DeselectBuilding()
+    {
+        if (currentlySelectedBuilding != null) currentlySelectedBuilding.SetHighlight(false);
+        currentlySelectedBuilding = null;
+        if (SimulationManager.Instance != null) SimulationManager.Instance.HideBuildingPopup();
+    }
 
     public Building GetRandomBuilding(BuildingType type)
     {

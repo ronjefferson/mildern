@@ -1,0 +1,7 @@
+=== SCALABILITY BENCHMARK REPORT ===
+Target Population: 100000
+Duration: 60 seconds
+------------------------------------
+Average FPS: 13.46
+Average Distance Checks per Epidemic Tick: 257
+====================================

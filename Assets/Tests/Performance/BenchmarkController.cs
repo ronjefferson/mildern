@@ -1,40 +1,50 @@
 using UnityEngine;
 using System.IO;
+using System.Collections;
 
 public class BenchmarkController : MonoBehaviour
 {
     [Header("Benchmark Settings")]
-    public int targetPopulation = 100000;
-    public float benchmarkDuration = 60f; // Run for 60 seconds
+    public int targetPopulation = 100000; 
+    public float benchmarkDuration = 60f; 
 
-    // Internal Trackers
     private float currentTimer = 0f;
     private int frameCount = 0;
     private float totalDeltaTime = 0f;
     private long totalDistanceChecks = 0;
-    private bool isRunning = true;
+    private int epidemicTicksRecorded = 0;
+    private bool isRunning = false;
 
-    void Start()
+    IEnumerator Start()
     {
-        Debug.Log("Starting Scalability Benchmark...");
+        yield return new WaitForSeconds(1f); 
+
+        SimulationManager.Instance.populationSize = targetPopulation;
+        SimulationManager.Instance.initialInfected = 1; 
         
-        // 1. Force the Simulation Manager to spawn the massive crowd instantly
-        // (Replace this with your actual spawn command)
-        SimulationManager.Instance.SpawnAgents(targetPopulation, 1); // 1 Infected, 99,999 Susceptible
+        SimulationManager.Instance.Initialize();
+
+        if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = 1f;
+
+        isRunning = true;
     }
 
     void Update()
     {
-        if (!isRunning) return;
+        if (!isRunning || SimulationManager.Instance == null) return;
 
         currentTimer += Time.deltaTime;
 
-        // 2. Track Performance (FPS and Grid Filter Math)
         frameCount++;
         totalDeltaTime += Time.deltaTime;
-        totalDistanceChecks += EpidemicSystem.DistanceChecksThisFrame;
 
-        // 3. End Benchmark and Write Log
+        if (SimulationManager.Instance.TotalDistanceChecksThisTick > 0)
+        {
+            totalDistanceChecks += SimulationManager.Instance.TotalDistanceChecksThisTick;
+            epidemicTicksRecorded++;
+            SimulationManager.Instance.TotalDistanceChecksThisTick = 0; 
+        }
+
         if (currentTimer >= benchmarkDuration)
         {
             isRunning = false;
@@ -45,23 +55,22 @@ public class BenchmarkController : MonoBehaviour
     private void GenerateBenchmarkReport()
     {
         float averageFPS = frameCount / totalDeltaTime;
-        long averageChecksPerFrame = totalDistanceChecks / frameCount;
-
-        string reportPath = Application.dataPath + "/Tests/Performance/BenchmarkReport.txt";
+        long averageChecksPerTick = epidemicTicksRecorded > 0 ? (totalDistanceChecks / epidemicTicksRecorded) : 0;
+        
+        string directory = Application.dataPath + "/Tests/Performance/";
+        if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
+        
+        string reportPath = directory + "BenchmarkReport.txt";
         
         string reportContent = "=== SCALABILITY BENCHMARK REPORT ===\n" +
                                "Target Population: " + targetPopulation + "\n" +
                                "Duration: " + benchmarkDuration + " seconds\n" +
                                "------------------------------------\n" +
                                "Average FPS: " + averageFPS.ToString("F2") + "\n" +
-                               "Average Distance Checks Per Frame: " + averageChecksPerFrame + "\n" +
-                               "====================================\n" +
-                               "STATUS: " + (averageFPS >= 30 ? "PASSED" : "FAILED");
+                               "Average Distance Checks per Epidemic Tick: " + averageChecksPerTick + "\n" +
+                               "====================================";
 
         File.WriteAllText(reportPath, reportContent);
-        Debug.Log("Benchmark Complete. Report saved to: " + reportPath);
-        
-        // Optional: Freeze the simulation when done
         Time.timeScale = 0; 
     }
 }

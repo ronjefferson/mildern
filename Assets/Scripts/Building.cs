@@ -21,6 +21,9 @@ public class Building : MonoBehaviour
 
     private Renderer buildingRenderer;
     private Material buildingMaterial;
+    
+    // NEW: Highlight tracker
+    private bool isHighlighted = false;
 
     public static readonly Color UnassignedColor  = new Color(0.6f, 0.6f, 0.6f);
     public static readonly Color ResidentialColor = new Color(0.3f, 0.8f, 0.3f);
@@ -72,7 +75,6 @@ public class Building : MonoBehaviour
 
     Color GetColorForType(BuildingType type)
     {
-        // FIX: If the manager says colors are off, force everything to gray!
         if (BuildingManager.Instance != null && !BuildingManager.Instance.showColors)
         {
             return UnassignedColor;
@@ -93,13 +95,31 @@ public class Building : MonoBehaviour
         buildingType = type;
         UpdateColor();
     }
+    
+    // NEW: Toggles the bright visual glow
+    public void SetHighlight(bool active)
+    {
+        isHighlighted = active;
+        UpdateColor();
+    }
 
     public void UpdateColor()
     {
         if (buildingMaterial == null && buildingRenderer != null)
             buildingMaterial = buildingRenderer.material = new Material(buildingRenderer.sharedMaterial);
+        
         if (buildingMaterial != null)
-            buildingMaterial.color = GetColorForType(buildingType);
+        {
+            Color targetColor = GetColorForType(buildingType);
+            
+            // NEW: If highlighted, brighten the color
+            if (isHighlighted)
+            {
+                targetColor = Color.Lerp(targetColor, Color.white, 0.4f);
+            }
+            
+            buildingMaterial.color = targetColor;
+        }
     }
 
     public Vector3 GetEntrancePosition()

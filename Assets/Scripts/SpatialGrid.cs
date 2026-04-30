@@ -11,17 +11,15 @@ public class SpatialGrid
     public int gridHeight;
     public float3 gridOrigin;
 
-    // UPDATED: Now using NativeParallelMultiHashMap
     public NativeParallelMultiHashMap<int, int> grid;
 
-    public SpatialGrid(float cellSize, float3 origin, int width, int height)
+    public SpatialGrid(float cellSize, float3 origin, int width, int height, int populationCapacity)
     {
         this.cellSize = cellSize;
         this.gridOrigin = origin;
         this.gridWidth = width;
         this.gridHeight = height;
-        // UPDATED: Initialization
-        grid = new NativeParallelMultiHashMap<int, int>(width * height * 4, Allocator.Persistent);
+        grid = new NativeParallelMultiHashMap<int, int>(populationCapacity, Allocator.Persistent);
     }
 
     public int GetCellKey(float3 position)
@@ -43,7 +41,6 @@ public class SpatialGrid
 public struct UpdateGridJob : IJobParallelFor
 {
     [ReadOnly] public NativeArray<SimulationAgent> agents;
-    // UPDATED: ParallelWriter syntax
     public NativeParallelMultiHashMap<int, int>.ParallelWriter gridWriter;
     public float cellSize;
     public float3 gridOrigin;
