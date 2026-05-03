@@ -292,7 +292,7 @@ public class SimulationManager : MonoBehaviour
 
                     bool arrivedAtHospital = !agent.isVaccineClinicCommercial
                         && agent.scheduleState == AgentScheduleState.AtHospital
-                        && agent.isAtHospital; // Replace isAtHospital if omitted in struct
+                        && agent.isAtHospital;
 
                     bool arrivedAtCommercial = agent.isVaccineClinicCommercial
                         && agent.scheduleState == AgentScheduleState.AtCommercial
@@ -1505,12 +1505,10 @@ public class SimulationManager : MonoBehaviour
         int totalClinics = activeHospitals + activeCommercials;
 
         if (totalClinics == 0) return; 
-
-        // 1. Calculate the base amount and the exact remainder
+        
         int baseVaccinesPerClinic = doses / totalClinics;
         int leftoverVaccines = doses % totalClinics;
-
-        // 2. Distribute the even base amounts
+        
         for (int i = 0; i < hospitalInventory.Length; i++) {
             hospitalInventory[i] = baseVaccinesPerClinic;
         }
@@ -1520,8 +1518,7 @@ public class SimulationManager : MonoBehaviour
                 commercialInventory[i] = baseVaccinesPerClinic;
             }
         }
-
-        // 3. Distribute the leftovers 1-by-1 (Round-robin style)
+        
         int currentLeftover = leftoverVaccines;
         
         for (int i = 0; i < hospitalInventory.Length && currentLeftover > 0; i++) {
@@ -2268,8 +2265,7 @@ public class SimulationManager : MonoBehaviour
     {
         var gameView = root.Q<VisualElement>("GameViewArea");
         var targetRoot = gameView != null ? gameView : root;
-
-        // 1. The "INFO" Button
+        
         var infoBtn = new Button { text = "i" };
         infoBtn.style.position = Position.Absolute;
         infoBtn.style.top = 15;
@@ -2280,7 +2276,7 @@ public class SimulationManager : MonoBehaviour
         infoBtn.style.borderTopRightRadius = 15;
         infoBtn.style.borderBottomLeftRadius = 15;
         infoBtn.style.borderBottomRightRadius = 15;
-        infoBtn.style.backgroundColor = new Color(0.25f, 0.25f, 0.25f, 1f); // Matched UI Gray
+        infoBtn.style.backgroundColor = new Color(0.25f, 0.25f, 0.25f, 1f);
         infoBtn.style.color = Color.white;
         infoBtn.style.unityFontStyleAndWeight = FontStyle.Bold;
         infoBtn.style.fontSize = 16;
@@ -2293,8 +2289,7 @@ public class SimulationManager : MonoBehaviour
 
         infoBtn.RegisterCallback<PointerEnterEvent>(evt => infoBtn.style.backgroundColor = new Color(0.35f, 0.35f, 0.35f, 1f));
         infoBtn.RegisterCallback<PointerLeaveEvent>(evt => infoBtn.style.backgroundColor = new Color(0.25f, 0.25f, 0.25f, 1f));
-
-        // 2. The Dark Overlay Background
+        
         docOverlay = new VisualElement();
         docOverlay.style.position = Position.Absolute;
         docOverlay.style.top = 0; docOverlay.style.bottom = 0;
@@ -2303,8 +2298,7 @@ public class SimulationManager : MonoBehaviour
         docOverlay.style.display = DisplayStyle.None;
         docOverlay.style.alignItems = Align.Center;
         docOverlay.style.justifyContent = Justify.Center;
-
-        // 3. The Main Content Window
+        
         var docWindow = new VisualElement();
         docWindow.style.width = Length.Percent(80);
         docWindow.style.height = Length.Percent(85);
@@ -2315,14 +2309,13 @@ public class SimulationManager : MonoBehaviour
         docWindow.style.borderTopLeftRadius = 8; docWindow.style.borderTopRightRadius = 8;
         docWindow.style.borderBottomLeftRadius = 8; docWindow.style.borderBottomRightRadius = 8;
         docWindow.style.flexDirection = FlexDirection.Column;
-
-        // 4. Window Header & Close Button
+        
         var headerRow = new VisualElement { style = { flexDirection = FlexDirection.Row, justifyContent = Justify.SpaceBetween, paddingLeft = 20, paddingRight = 20, paddingTop = 15, paddingBottom = 15, borderBottomWidth = 1, borderBottomColor = new Color(0.3f, 0.3f, 0.3f) } };
         var title = new Label("SYSTEM DOCUMENTATION & TRANSPARENCY") { style = { color = Color.white, fontSize = 16, unityFontStyleAndWeight = FontStyle.Bold } };
         
-        // Using the symmetrical '×' symbol instead of a capital 'X'
+        
         var closeBtn = new Button { text = "×" };
-        closeBtn.style.backgroundColor = new Color(0.25f, 0.25f, 0.25f, 1f); // Matched UI Gray
+        closeBtn.style.backgroundColor = new Color(0.25f, 0.25f, 0.25f, 1f);
         closeBtn.style.color = Color.white;
         closeBtn.style.borderTopWidth = 1; closeBtn.style.borderBottomWidth = 1; 
         closeBtn.style.borderLeftWidth = 1; closeBtn.style.borderRightWidth = 1;
@@ -2333,10 +2326,9 @@ public class SimulationManager : MonoBehaviour
         closeBtn.style.borderTopLeftRadius = 4; closeBtn.style.borderTopRightRadius = 4;
         closeBtn.style.borderBottomLeftRadius = 4; closeBtn.style.borderBottomRightRadius = 4;
         closeBtn.style.width = 30; closeBtn.style.height = 30;
-        closeBtn.style.fontSize = 22; // Slightly larger so the '×' looks perfectly centered
+        closeBtn.style.fontSize = 22;
         closeBtn.style.unityFontStyleAndWeight = FontStyle.Bold;
         
-        // Hover effects: Turns red on hover to indicate a "Close" action
         closeBtn.RegisterCallback<PointerEnterEvent>(evt => closeBtn.style.backgroundColor = new Color(0.8f, 0.3f, 0.3f, 1f));
         closeBtn.RegisterCallback<PointerLeaveEvent>(evt => closeBtn.style.backgroundColor = new Color(0.25f, 0.25f, 0.25f, 1f));
         
@@ -2346,13 +2338,12 @@ public class SimulationManager : MonoBehaviour
         headerRow.Add(title);
         headerRow.Add(closeBtn);
         docWindow.Add(headerRow);
-
-        // 5. The Scrollable Text Area
+        
         docScrollView = new ScrollView(ScrollViewMode.Vertical);
         docScrollView.style.flexGrow = 1;
         docScrollView.style.paddingTop = 15; docScrollView.style.paddingBottom = 20;
         docScrollView.style.paddingLeft = 25; docScrollView.style.paddingRight = 25;
-        StyleCustomScrollbar(docScrollView); // Re-use your existing scrollbar style!
+        StyleCustomScrollbar(docScrollView);
 
         PopulateDocumentationText(docScrollView);
 
@@ -2365,17 +2356,11 @@ public class SimulationManager : MonoBehaviour
 
     private void PopulateDocumentationText(ScrollView sv)
 {
-    // ----------------------------------------------------------
-    //  OVERVIEW
-    // ----------------------------------------------------------
     AddDocSection(sv, "WHAT IS THIS SIMULATION?",
         "This is an agent-based epidemiological simulator. Unlike traditional equation-based models (which treat an entire population as a single averaged blob), this system simulates every individual in the city as a living, breathing person with their own schedule, personality, compliance score, workplace, home, and daily routine.\n\n" +
         "The result is a system that can produce emergent, realistic phenomena — silent super-spreaders, healthcare system collapse, lockdown fatigue, vaccination hesitancy — behaviors that equation-based models structurally cannot capture.\n\n" +
         "The simulation runs inside the Unity game engine and is built around three major technical pillars: a multithreaded job system for performance, a spatial partition grid for virus propagation, and a compliance-based behavioral engine for human decision-making.");
- 
-    // ----------------------------------------------------------
-    //  PART 1: ENGINE ARCHITECTURE
-    // ----------------------------------------------------------
+    
     AddDocSection(sv, "PART 1 — ENGINE ARCHITECTURE", "");
  
     AddDocSection(sv, "1.1  The Two-Tick System",
@@ -2425,10 +2410,7 @@ public class SimulationManager : MonoBehaviour
         "• <b>Hospital overflow is soft:</b> When hospital beds are full, agents still receive reduced (but not zero) hospitalisation benefits. There is no hard 'turned away' mechanic.\n\n" +
         "• <b>Performance ceiling:</b> Above ~20,000 agents on a mid-range CPU, frame rate will degrade. The 100× fast-forward mode reduces visual smoothness significantly at high populations.\n\n" +
         "• <b>Single-city model:</b> There is no inter-region travel, importation of cases from outside, or cross-border dynamics.");
- 
-    // ----------------------------------------------------------
-    //  PART 2: VIRUS PARAMETERS
-    // ----------------------------------------------------------
+    
     AddDocSection(sv, "PART 2 — VIRUS PARAMETERS", "");
  
     AddDocSection(sv, "Population Size",
@@ -2474,10 +2456,7 @@ public class SimulationManager : MonoBehaviour
         "• <b>0.001 – 0.01:</b> Low mortality. Most scenarios end with a large Recovered population and a small Dead count. Healthcare systems are stressed by volume but not mortality.\n" +
         "• <b>0.02 – 0.05:</b> Moderate mortality, comparable to historical influenza pandemics. Deaths accumulate visibly across the simulation timeline.\n" +
         "• <b>0.10+:</b> High mortality. Combine with a fast-spreading virus and the city can lose a significant fraction of its population within 30 simulation days. Note that high mortality also removes infected agents from the pool faster, which can paradoxically slow the epidemic.");
- 
-    // ----------------------------------------------------------
-    //  PART 3: IMMUNITY & VACCINES
-    // ----------------------------------------------------------
+    
     AddDocSection(sv, "PART 3 — IMMUNITY & VACCINES", "");
  
     AddDocSection(sv, "Immunity Duration (Days)",
@@ -2524,10 +2503,7 @@ public class SimulationManager : MonoBehaviour
         "When an agent arrives at a vaccination clinic, they do not receive the dose instantly. They wait a random duration between these two values, simulating queue time and administration. The agent is 'locked' at the clinic during this window.\n\n" +
         "• <b>Low wait time (0.1 – 0.5 hours):</b> High-throughput clinics. Doses are administered quickly. The vaccination campaign completes faster but requires agents to detour from normal schedules for a shorter period.\n" +
         "• <b>High wait time (4+ hours):</b> Overwhelmed clinics. Agents spend a large fraction of the day waiting. This can cause secondary disruption — agents miss work, arrive home late, and interact with more agents at the clinic than normal.");
- 
-    // ----------------------------------------------------------
-    //  PART 4: BUILDING TRANSMISSION
-    // ----------------------------------------------------------
+    
     AddDocSection(sv, "PART 4 — BUILDING TRANSMISSION CONTROLS", "");
  
     AddDocSection(sv, "How Indoor Transmission Works",
@@ -2585,10 +2561,7 @@ public class SimulationManager : MonoBehaviour
         "• <b>10 – 20 beds:</b> Critically constrained healthcare. Expect rapid bed saturation even in moderate outbreaks. This tests your ability to flatten the curve.\n" +
         "• <b>50 – 100 beds:</b> Realistic municipal hospital capacity for a mid-sized simulated population.\n" +
         "• <b>500+ beds:</b> Abundant healthcare. The system will not saturate under most epidemic scenarios. Mortality is low. Use this to study pure epidemic dynamics without healthcare as a variable.");
- 
-    // ----------------------------------------------------------
-    //  PART 5: SOCIETAL BEHAVIOUR
-    // ----------------------------------------------------------
+    
     AddDocSection(sv, "PART 5 — SOCIETAL BEHAVIOR & LOGISTICS", "");
  
     AddDocSection(sv, "Non-Worker Ratio",
@@ -2644,10 +2617,7 @@ public class SimulationManager : MonoBehaviour
         "• <b>0.0:</b> Simultaneous mass evacuation. All 10,000 agents attempt to pathfind home on the same frame. This creates visual 'stampede' bunching and can stress the pathfinding system.\n" +
         "• <b>0.75 hours:</b> A 45-minute staggered evacuation. Agents trickle home in a realistic, orderly fashion.\n" +
         "• <b>3.0+ hours:</b> Delayed reaction. Simulates slow information spread or disorganised coordination. Agents are still out in the city for many hours after lockdown is declared, meaning lockdown takes a long time to become effective.");
- 
-    // ----------------------------------------------------------
-    //  PART 6: SOCIAL DISTANCING
-    // ----------------------------------------------------------
+    
     AddDocSection(sv, "PART 6 — SOCIAL DISTANCING", "");
  
     AddDocSection(sv, "How Social Distancing Works",
@@ -2684,10 +2654,7 @@ public class SimulationManager : MonoBehaviour
         "• <b>1.0:</b> No physical spacing. Agents still cluster tightly at destinations.\n" +
         "• <b>2.0:</b> Agents stand roughly twice as far from each other at destinations.\n" +
         "• <b>4.0+:</b> Aggressive spacing. Combined with a small commercial contact cap, compliant agents in commercial zones barely overlap — very effective at breaking commercial transmission chains.");
- 
-    // ----------------------------------------------------------
-    //  PART 7: MEDICAL TRIAGE
-    // ----------------------------------------------------------
+    
     AddDocSection(sv, "PART 7 — MEDICAL TRIAGE & COMPLIANCE", "");
  
     AddDocSection(sv, "The Triage Decision Tree",
@@ -2716,10 +2683,7 @@ public class SimulationManager : MonoBehaviour
         "• <b>0.5:</b> Half the city ignores the lockdown. Commercial zones remain populated. The lockdown reduces but does not eliminate epidemic growth.\n" +
         "• <b>0.85:</b> Strong compliance. 85% of the population stays home. Commercial and workplace transmission drops dramatically.\n" +
         "• <b>1.0:</b> Perfect compliance. Every agent stays home. Outdoor and workplace transmission drops to near zero. Residual transmission continues only within households.");
- 
-    // ----------------------------------------------------------
-    //  PART 8: SAVE / LOAD & EXPORT
-    // ----------------------------------------------------------
+    
     AddDocSection(sv, "PART 8 — SAVE, LOAD & EXPORT", "");
  
     AddDocSection(sv, "Saving a Simulation",
@@ -2748,7 +2712,7 @@ public class SimulationManager : MonoBehaviour
     private void AddDocSection(ScrollView sv, string title, string body)
     {
         var titleLabel = new Label(title);
-        titleLabel.style.color = new Color(0.4f, 0.8f, 0.9f, 1f); // Light blue
+        titleLabel.style.color = new Color(0.4f, 0.8f, 0.9f, 1f);
         titleLabel.style.fontSize = 14;
         titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
         titleLabel.style.marginTop = 15;
@@ -2756,9 +2720,9 @@ public class SimulationManager : MonoBehaviour
 
         var bodyLabel = new Label(body);
         bodyLabel.enableRichText = true;
-        bodyLabel.style.color = new Color(0.85f, 0.85f, 0.85f, 1f); // Off-white
+        bodyLabel.style.color = new Color(0.85f, 0.85f, 0.85f, 1f);
         bodyLabel.style.fontSize = 12;
-        bodyLabel.style.whiteSpace = WhiteSpace.Normal; // Allows text wrapping
+        bodyLabel.style.whiteSpace = WhiteSpace.Normal;
         bodyLabel.style.marginBottom = 10;
 
         sv.Add(titleLabel);
