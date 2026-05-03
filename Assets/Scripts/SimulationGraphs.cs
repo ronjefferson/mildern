@@ -569,11 +569,7 @@ public class VirusVaccineControls : VisualElement
 {
     public new class UxmlFactory : UxmlFactory<VirusVaccineControls, UxmlTraits> { }
 
-    public System.Action<int, float, float, float, float> OnMutateVirus;
-    public System.Action<int, int, float, float> OnDeployVaccine;
-
-    private VisualElement activeStrainsContainer;
-    private VisualElement activeVaccinesContainer;
+    public System.Action<int, float, float> OnDeployVaccine;
 
     public VirusVaccineControls()
     {
@@ -595,48 +591,6 @@ public class VirusVaccineControls : VisualElement
         };
         scrollArea.Add(mainTitle);
 
-        var virusFoldout = new Foldout { text = "Virus Mutation Parameters" };
-        StyleInspectorFoldout(virusFoldout);
-
-        var virusContent = new VisualElement
-        {
-            style = { paddingLeft = 15, paddingRight = 15, paddingTop = 10, paddingBottom = 15, backgroundColor = new Color(0.18f, 0.18f, 0.18f, 1f), color = Color.white }
-        };
-
-        var vStrainField = new IntegerField("New Strain Level:") { value = 2 };
-        vStrainField.AddToClassList("inspector-field");
-        vStrainField.style.color = Color.white;
-        virusContent.Add(WrapWithInfoButton(vStrainField, "New Strain Level"));
-
-        Slider vEvasionSlider, vTransSlider, vFatalitySlider;
-        virusContent.Add(CreateSliderRow("Immunity Evasion:", 0f, 1f, 0.30f, out vEvasionSlider));
-        virusContent.Add(CreateSliderRow("Infection Rate:", 0.01f, 1.0f, 0.40f, out vTransSlider));
-
-        var vIncubationField = new FloatField("Incubation (Days):") { value = 5f };
-        vIncubationField.AddToClassList("inspector-field");
-        vIncubationField.style.color = Color.white;
-        virusContent.Add(WrapWithInfoButton(vIncubationField, "Incubation (Days)"));
-
-        virusContent.Add(CreateSliderRow("Mortality Rate:", 0f, 1.0f, 0.02f, out vFatalitySlider));
-
-        activeStrainsContainer = CreateListBoxContainer();
-        UpdateActiveStrains(new Dictionary<int, int>());
-        virusContent.Add(activeStrainsContainer);
-
-        var mutateBtn = new Button(() =>
-        {
-            OnMutateVirus?.Invoke(vStrainField.value, vEvasionSlider.value, vTransSlider.value, vIncubationField.value, vFatalitySlider.value);
-        })
-        { text = "TRIGGER MUTATION" };
-        mutateBtn.AddToClassList("action-button");
-        mutateBtn.style.marginTop    = 10;
-        mutateBtn.style.marginBottom = 10;
-        AttachHoverTooltip(mutateBtn, "Trigger Mutation");
-        virusContent.Add(mutateBtn);
-
-        virusFoldout.Add(virusContent);
-        scrollArea.Add(virusFoldout);
-
         var vaccineFoldout = new Foldout { text = "Vaccine Deployment" };
         StyleInspectorFoldout(vaccineFoldout);
 
@@ -645,25 +599,19 @@ public class VirusVaccineControls : VisualElement
             style = { paddingLeft = 15, paddingRight = 15, paddingTop = 10, paddingBottom = 15, backgroundColor = new Color(0.18f, 0.18f, 0.18f, 1f), color = Color.white }
         };
 
-        var vacStrainField = new IntegerField("Vaccine Strain:") { value = 1 };
         var vacDosesField  = new IntegerField("Supply Doses:")   { value = 5000 };
-        vacStrainField.AddToClassList("inspector-field"); vacStrainField.style.color = Color.white;
-        vacDosesField.AddToClassList("inspector-field");  vacDosesField.style.color  = Color.white;
+        vacDosesField.AddToClassList("inspector-field");  
+        vacDosesField.style.color  = Color.white;
 
-        vaccineContent.Add(WrapWithInfoButton(vacStrainField, "Vaccine Strain"));
         vaccineContent.Add(WrapWithInfoButton(vacDosesField,  "Supply Doses"));
 
         Slider vacEfficacySlider, vacAbidanceSlider;
         vaccineContent.Add(CreateSliderRow("Base Efficacy:",   0f, 1f, 0.90f, out vacEfficacySlider));
         vaccineContent.Add(CreateSliderRow("Public Abidance:", 0f, 1f, 0.75f, out vacAbidanceSlider));
 
-        activeVaccinesContainer = CreateListBoxContainer();
-        UpdateActiveVaccines(new Dictionary<int, int>());
-        vaccineContent.Add(activeVaccinesContainer);
-
         var deployBtn = new Button(() =>
         {
-            OnDeployVaccine?.Invoke(vacStrainField.value, vacDosesField.value, vacEfficacySlider.value, vacAbidanceSlider.value);
+            OnDeployVaccine?.Invoke(vacDosesField.value, vacEfficacySlider.value, vacAbidanceSlider.value);
         })
         { text = "DEPLOY WAVE" };
         deployBtn.AddToClassList("action-button");
@@ -675,7 +623,6 @@ public class VirusVaccineControls : VisualElement
         vaccineFoldout.Add(vaccineContent);
         scrollArea.Add(vaccineFoldout);
 
-        virusFoldout.value   = true;
         vaccineFoldout.value = true;
         Add(scrollArea);
     }
@@ -824,35 +771,6 @@ public class VirusVaccineControls : VisualElement
         });
     }
 
-    private VisualElement CreateListBoxContainer()
-    {
-        return new VisualElement
-        {
-            style =
-            {
-                backgroundColor    = new Color(0.20f, 0.20f, 0.20f, 1f),
-                borderTopWidth     = 0, borderBottomWidth = 0, borderLeftWidth = 0, borderRightWidth = 0,
-                borderTopLeftRadius = 0, borderTopRightRadius = 0, borderBottomLeftRadius = 0, borderBottomRightRadius = 0,
-                paddingTop    = 8,  paddingBottom = 8,
-                paddingLeft   = 15, paddingRight  = 15,
-                marginTop     = 10, marginBottom  = 10,
-                marginLeft    = -15, marginRight  = -15
-            }
-        };
-    }
-
-    private Label CreateListTitle(string text)
-    {
-        return new Label(text)
-        {
-            style =
-            {
-                color = Color.white, fontSize = 11, unityFontStyleAndWeight = FontStyle.Bold,
-                marginBottom = 6, borderBottomWidth = 1, borderBottomColor = new Color(0.3f, 0.3f, 0.3f), paddingBottom = 4
-            }
-        };
-    }
-
     private VisualElement CreateSliderRow(string labelText, float min, float max, float defaultVal, out Slider slider)
     {
         var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 2 } };
@@ -880,56 +798,6 @@ public class VirusVaccineControls : VisualElement
         row.Add(CreateInfoButton(key));
 
         return row;
-    }
-
-    public void UpdateActiveStrains(Dictionary<int, int> strainCounts)
-    {
-        activeStrainsContainer.Clear();
-        activeStrainsContainer.Add(CreateListTitle("Active Circulating Strains"));
-        bool hasAny = false;
-        foreach (var kvp in strainCounts)
-        {
-            if (kvp.Value > 0)
-            {
-                activeStrainsContainer.Add(new Label($"• Strain v{kvp.Key}: {kvp.Value} active cases")
-                {
-                    style = { color = new Color(0.85f, 0.85f, 0.85f), fontSize = 10, marginBottom = 2, marginLeft = 4 }
-                });
-                hasAny = true;
-            }
-        }
-        if (!hasAny)
-        {
-            activeStrainsContainer.Add(new Label("No active strains.")
-            {
-                style = { color = new Color(0.5f, 0.5f, 0.5f), fontSize = 10, unityFontStyleAndWeight = FontStyle.Italic, marginLeft = 4 }
-            });
-        }
-    }
-
-    public void UpdateActiveVaccines(Dictionary<int, int> vaccineCounts)
-    {
-        activeVaccinesContainer.Clear();
-        activeVaccinesContainer.Add(CreateListTitle("Current Vaccines"));
-        bool hasAny = false;
-        foreach (var kvp in vaccineCounts)
-        {
-            if (kvp.Value > 0)
-            {
-                activeVaccinesContainer.Add(new Label($"• Strain v{kvp.Key} Shield: {kvp.Value} protected")
-                {
-                    style = { color = new Color(0.85f, 0.85f, 0.85f), fontSize = 10, marginBottom = 2, marginLeft = 4 }
-                });
-                hasAny = true;
-            }
-        }
-        if (!hasAny)
-        {
-            activeVaccinesContainer.Add(new Label("No deployed vaccines.")
-            {
-                style = { color = new Color(0.5f, 0.5f, 0.5f), fontSize = 10, unityFontStyleAndWeight = FontStyle.Italic, marginLeft = 4 }
-            });
-        }
     }
 }
 

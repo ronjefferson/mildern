@@ -28,14 +28,7 @@ public struct SimulationAgent
     public float recoveryTimer;
     public float incubationTimer;
     public float immunityTimer; 
-
-    public int activeStrainID;      
-    public int protectedStrainID;   
     
-    // NEW: T-Cell / B-Cell Long Term Memory!
-    // A bitmask storing every strain they have EVER recovered from
-    public uint historicalStrainMask; 
-
     public bool isSeekingVaccine;
     public int vaccineClinicID;
     public bool isVaccineClinicCommercial;
@@ -51,12 +44,20 @@ public struct SimulationAgent
     
     public int currentWaypointIndex;
     public int destinationWaypointIndex;
-    public int prev1, prev2, prev3, prev4;
+   
+    public int prev1, prev2, prev3, prev4, prev5, prev6, prev7, prev8;
     
-    public float workStartHour;
-    public float workEndHour;
-    public float returnHomeHour;
-    public float commercialArrivalHour;
+    public bool isEscaping;
+    public int escapeStepCount;
+    public int frustrationCounter;
+    public float highWatermarkDistance;
+    
+    // --- Demographics & Cascading Schedule ---
+    public bool isWorker;
+    public float workStartHour;   // Acts as "Errand Start" for Non-Workers
+    public float workEndHour;     // Acts as "Errand End" for Non-Workers
+    public float leisureDuration; // How long they stay out wandering after their shift
+    
     public float complianceLevel;
     public float commutingStartTime;
 
@@ -65,6 +66,5 @@ public struct SimulationAgent
     public bool isInsideBuilding;
     public bool hasMovementSegment;
     public bool hasDestinationWaypoint;
-    public bool visitsCommercial;
     public bool isWeekendRoamer;
 }

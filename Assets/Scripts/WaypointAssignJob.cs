@@ -16,6 +16,7 @@ public struct WaypointAssignJob : IJobParallelFor
     public float realTime;
     public float waypointReachDistance;
     public float currentHour;
+    public float stuckTimeoutSimHours; // Replaces the hardcoded 3 hours
 
     public void Execute(int i)
     {
@@ -23,14 +24,14 @@ public struct WaypointAssignJob : IJobParallelFor
 
         if (!agent.isActive || agent.isInsideBuilding) return;
 
-        // ----- THE TARGETED TELEPORT (ONLY FOR LOOPING AGENTS) -----
-        if (agent.scheduleState == AgentScheduleState.Returning && agent.hasDestinationWaypoint && agent.commutingStartTime > -100f)
+        // ----- THE UNIVERSAL TELEPORT (FAILSAFE) -----
+        if (agent.hasDestinationWaypoint && agent.commutingStartTime > -100f)
         {
             float commuteDuration = currentHour - agent.commutingStartTime;
-            if (commuteDuration < 0f) commuteDuration += 24f; // Handles midnight wrap-around
+            if (commuteDuration < 0f) commuteDuration += 24f; 
             
-            // If this specific agent has been walking for over 3 in-game hours, they are stuck in a loop.
-            if (commuteDuration > 3.0f)
+            // ---> FIX: Uses your actual UI variable instead of 3.0f <---
+            if (commuteDuration > stuckTimeoutSimHours)
             {
                 agent.currentWaypointIndex = agent.destinationWaypointIndex;
                 agent.position = waypoints[agent.destinationWaypointIndex] + agent.personalOffset;
@@ -38,8 +39,27 @@ public struct WaypointAssignJob : IJobParallelFor
                 agent.moveEndPosition = agent.position;
                 agent.hasMovementSegment = false;
                 
+                agent.isEscaping = false;
+                agent.frustrationCounter = 0;
+                agent.highWatermarkDistance = 0f;
+
+                if (agent.scheduleState == AgentScheduleState.Leisure) 
+                {
+                    agent.hasDestinationWaypoint = false;
+                    agent.isInsideBuilding = false;
+                } 
+                else 
+                {
+                    agent.isInsideBuilding = true;
+                    if (agent.scheduleState == AgentScheduleState.Returning)
+                    {
+                        agent.scheduleState = AgentScheduleState.Home;
+                    }
+                }
+                
+                agent.commutingStartTime = -9999f;
                 agents[i] = agent;
-                return; // Teleport complete, exit early.
+                return; 
             }
         }
         // -----------------------------------------------------------
@@ -68,9 +88,34 @@ public struct WaypointAssignJob : IJobParallelFor
 
             bool isAtDestinationNode = agent.hasDestinationWaypoint && (agent.currentWaypointIndex == agent.destinationWaypointIndex);
 
+            // --- ARRIVAL ---
             if (distToTarget <= waypointReachDistance * 3f || isAtDestinationNode)
             {
                 agent.hasMovementSegment = false;
+                agent.isEscaping = false;
+                agent.frustrationCounter = 0;
+                agent.highWatermarkDistance = 0f;
+                
+                if (agent.scheduleState == AgentScheduleState.Leisure) 
+                {
+                    // WANDER ZONE: Drop target, stay outside
+                    agent.hasDestinationWaypoint = false;
+                    agent.isInsideBuilding = false;
+                    agent.commutingStartTime = -9999f;
+                }
+                else
+                {
+                    // ---> THE MAJOR BUG FIX <---
+                    // Agents now actually go inside the building instead of wandering away!
+                    agent.isInsideBuilding = true;
+                    agent.commutingStartTime = -9999f;
+
+                    if (agent.scheduleState == AgentScheduleState.Returning)
+                    {
+                        agent.scheduleState = AgentScheduleState.Home;
+                    }
+                }
+                
                 break;
             }
 
@@ -84,41 +129,91 @@ public struct WaypointAssignJob : IJobParallelFor
 
                 if (agent.hasDestinationWaypoint)
                 {
+                    if (agent.isEscaping)
+                    {
+                        agent.escapeStepCount--;
+                        if (agent.escapeStepCount <= 0)
+                        {
+                            agent.isEscaping = false;
+                            agent.highWatermarkDistance = 0f; 
+                            agent.frustrationCounter = 0;
+                        }
+                    }
+                    else
+                    {
+                        float currentDistSq = math.distancesq(
+                            new float3(agent.position.x, 0f, agent.position.z),
+                            new float3(effectiveDest.x, 0f, effectiveDest.z)
+                        );
+
+                        if (agent.highWatermarkDistance == 0f || currentDistSq < agent.highWatermarkDistance - 1.0f)
+                        {
+                            agent.highWatermarkDistance = currentDistSq;
+                            agent.frustrationCounter = 0;
+                        }
+                        else
+                        {
+                            agent.frustrationCounter++;
+                        }
+
+                        if (agent.frustrationCounter >= 15)
+                        {
+                            agent.isEscaping = true;
+                            agent.escapeStepCount = 8; 
+                            agent.frustrationCounter = 0;
+                        }
+                    }
+                }
+
+                if (agent.hasDestinationWaypoint)
+                {
                     float3 dest = effectiveDest;
                     int best1 = -1, best2 = -1, best3 = -1;
-                    float dist1 = float.MaxValue, dist2 = float.MaxValue, dist3 = float.MaxValue;
+                    float score1 = float.MaxValue, score2 = float.MaxValue, score3 = float.MaxValue;
 
                     for (int n = 0; n < count; n++)
                     {
                         int candidateIdx = neighborData[start + n];
                         
-                        // Breadcrumbs: Heavy penalty to discourage turning around
                         float penalty = 0f;
-                        if (candidateIdx == agent.prev1) penalty = 10000000f; 
-                        else if (candidateIdx == agent.prev2) penalty = 5000000f;
-                        else if (candidateIdx == agent.prev3) penalty = 2500000f;
-                        else if (candidateIdx == agent.prev4) penalty = 1250000f;
+                        if      (candidateIdx == agent.prev1) penalty = 80000000f; 
+                        else if (candidateIdx == agent.prev2) penalty = 70000000f;
+                        else if (candidateIdx == agent.prev3) penalty = 60000000f;
+                        else if (candidateIdx == agent.prev4) penalty = 50000000f;
+                        else if (candidateIdx == agent.prev5) penalty = 40000000f;
+                        else if (candidateIdx == agent.prev6) penalty = 30000000f;
+                        else if (candidateIdx == agent.prev7) penalty = 20000000f;
+                        else if (candidateIdx == agent.prev8) penalty = 10000000f;
 
-                        float d = math.distancesq(
+                        float distSq = math.distancesq(
                             new float3(waypoints[candidateIdx].x, 0f, waypoints[candidateIdx].z),
                             new float3(dest.x, 0f, dest.z)
-                        ) + penalty;
+                        );
                         
-                        if (d < dist1) { dist3 = dist2; best3 = best2; dist2 = dist1; best2 = best1; dist1 = d; best1 = candidateIdx; }
-                        else if (d < dist2) { dist3 = dist2; best3 = best2; dist2 = d; best2 = candidateIdx; }
-                        else if (d < dist3) { dist3 = d; best3 = candidateIdx; }
+                        float nodeScore = agent.isEscaping ? (-distSq + penalty) : (distSq + penalty);
+                        
+                        if (nodeScore < score1) { score3 = score2; best3 = best2; score2 = score1; best2 = best1; score1 = nodeScore; best1 = candidateIdx; }
+                        else if (nodeScore < score2) { score3 = score2; best3 = best2; score2 = nodeScore; best2 = candidateIdx; }
+                        else if (nodeScore < score3) { score3 = nodeScore; best3 = candidateIdx; }
                     }
 
                     var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(i * 7919 + wIdx * 104729 + (uint)(currentSimTime * 13) + steps * 17));
                     float roll = rng.NextFloat();
                     
                     int chosen;
-                    if (roll < 0.6f || best2 == -1) chosen = best1;
-                    else if (roll < 0.9f || best3 == -1) chosen = best2;
+                    float p1 = agent.isEscaping ? 0.85f : 0.6f;
+                    float p2 = agent.isEscaping ? 0.98f : 0.9f;
+
+                    if (roll < p1 || best2 == -1) chosen = best1;
+                    else if (roll < p2 || best3 == -1) chosen = best2;
                     else chosen = best3;
 
                     if (chosen >= 0)
                     {
+                        agent.prev8 = agent.prev7;
+                        agent.prev7 = agent.prev6;
+                        agent.prev6 = agent.prev5;
+                        agent.prev5 = agent.prev4;
                         agent.prev4 = agent.prev3;
                         agent.prev3 = agent.prev2;
                         agent.prev2 = agent.prev1;
@@ -132,7 +227,6 @@ public struct WaypointAssignJob : IJobParallelFor
                 }
                 else
                 {
-                    // Wandering
                     var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(i * 7919 + wIdx * 104729 + (uint)(currentSimTime * 37) + steps * 17));
                     int nextIdx = -1;
                     
@@ -145,7 +239,7 @@ public struct WaypointAssignJob : IJobParallelFor
                         for (int n = 0; n < count; n++)
                         {
                             int candidateIdx = neighborData[start + n];
-                            if (candidateIdx == agent.prev1) continue;
+                            if (candidateIdx == agent.prev1) continue; 
                             if (currentValid == pick) { nextIdx = candidateIdx; break; }
                             currentValid++;
                         }
@@ -153,10 +247,15 @@ public struct WaypointAssignJob : IJobParallelFor
 
                     if (nextIdx >= 0)
                     {
+                        agent.prev8 = agent.prev7;
+                        agent.prev7 = agent.prev6;
+                        agent.prev6 = agent.prev5;
+                        agent.prev5 = agent.prev4;
                         agent.prev4 = agent.prev3;
                         agent.prev3 = agent.prev2;
                         agent.prev2 = agent.prev1;
                         agent.prev1 = agent.currentWaypointIndex;
+
                         agent.currentWaypointIndex = nextIdx;
                         agent.targetPosition = waypoints[nextIdx];
                         agent.targetPosition.y = agent.position.y;
