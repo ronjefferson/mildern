@@ -22,7 +22,6 @@ public class Building : MonoBehaviour
     private Renderer buildingRenderer;
     private Material buildingMaterial;
     
-    // NEW: Highlight tracker
     private bool isHighlighted = false;
 
     public static readonly Color UnassignedColor  = new Color(0.6f, 0.6f, 0.6f);
@@ -96,7 +95,6 @@ public class Building : MonoBehaviour
         UpdateColor();
     }
     
-    // NEW: Toggles the bright visual glow
     public void SetHighlight(bool active)
     {
         isHighlighted = active;
@@ -112,7 +110,6 @@ public class Building : MonoBehaviour
         {
             Color targetColor = GetColorForType(buildingType);
             
-            // NEW: If highlighted, brighten the color
             if (isHighlighted)
             {
                 targetColor = Color.Lerp(targetColor, Color.white, 0.4f);

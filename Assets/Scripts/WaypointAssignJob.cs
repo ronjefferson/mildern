@@ -16,21 +16,19 @@ public struct WaypointAssignJob : IJobParallelFor
     public float realTime;
     public float waypointReachDistance;
     public float currentHour;
-    public float stuckTimeoutSimHours; // Replaces the hardcoded 3 hours
+    public float stuckTimeoutSimHours;
 
     public void Execute(int i)
     {
         SimulationAgent agent = agents[i];
 
         if (!agent.isActive || agent.isInsideBuilding) return;
-
-        // ----- THE UNIVERSAL TELEPORT (FAILSAFE) -----
+        
         if (agent.hasDestinationWaypoint && agent.commutingStartTime > -100f)
         {
             float commuteDuration = currentHour - agent.commutingStartTime;
             if (commuteDuration < 0f) commuteDuration += 24f; 
             
-            // ---> FIX: Uses your actual UI variable instead of 3.0f <---
             if (commuteDuration > stuckTimeoutSimHours)
             {
                 agent.currentWaypointIndex = agent.destinationWaypointIndex;
@@ -62,7 +60,6 @@ public struct WaypointAssignJob : IJobParallelFor
                 return; 
             }
         }
-        // -----------------------------------------------------------
 
         int maxSteps = 100; 
         int steps = 0;
@@ -87,8 +84,6 @@ public struct WaypointAssignJob : IJobParallelFor
             float distToTarget = math.length(toTarget);
 
             bool isAtDestinationNode = agent.hasDestinationWaypoint && (agent.currentWaypointIndex == agent.destinationWaypointIndex);
-
-            // --- ARRIVAL ---
             if (distToTarget <= waypointReachDistance * 3f || isAtDestinationNode)
             {
                 agent.hasMovementSegment = false;
@@ -98,15 +93,12 @@ public struct WaypointAssignJob : IJobParallelFor
                 
                 if (agent.scheduleState == AgentScheduleState.Leisure) 
                 {
-                    // WANDER ZONE: Drop target, stay outside
                     agent.hasDestinationWaypoint = false;
                     agent.isInsideBuilding = false;
                     agent.commutingStartTime = -9999f;
                 }
                 else
                 {
-                    // ---> THE MAJOR BUG FIX <---
-                    // Agents now actually go inside the building instead of wandering away!
                     agent.isInsideBuilding = true;
                     agent.commutingStartTime = -9999f;
 

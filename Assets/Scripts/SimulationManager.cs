@@ -119,6 +119,12 @@ public class SimulationManager : MonoBehaviour
     private VisualElement docOverlay;
     private ScrollView docScrollView;
 
+    [Header("Year-End Popup")]
+    private VisualElement yearEndOverlay;
+    private Label yearEndStatsLabel;
+    private bool isYearEndReached = false;
+    
+
     [Header("Parameters")]
     public int populationSize = 10000;
     public int initialInfected = 10;
@@ -193,8 +199,8 @@ public class SimulationManager : MonoBehaviour
     [Header("Lockdown & Compliance Overrides")]
     public bool isLockdown = false;
     public float lockdownAbidance = 0.85f;
-    [Range(0f, 1f)] public float sickHospitalThreshold = 0.5f;
-    [Range(0f, 1f)] public float sickStayHomeThreshold = 0.2f;
+    [Range(0f, 1f)] public float hospitalizationAbidance = 0.5f;
+    [Range(0f, 1f)] public float selfQuarantineAbidance = 0.2f;
 
     public float realSecondsPerInGameDay = 60f;
     public float agentSpeed = 5f;
@@ -273,6 +279,13 @@ public class SimulationManager : MonoBehaviour
 
                 int currentDay = Mathf.FloorToInt(realTime / realSecondsPerInGameDay) + 1;
 
+                // ---> THE 365-DAY HARDCAP <---
+                if (currentDay > 365)
+                {
+                    TriggerYearEndState();
+                    break; // Instantly kicks out of the calculation loop
+                }
+
                 if (currentDay > furthestRecordedDay && !isExploringPast)
                 {
                     SaveHistoricalSnapshot(currentDay);
@@ -345,6 +358,8 @@ public class SimulationManager : MonoBehaviour
                     totalCommercialWaypoints = nativeCommercialNearest.Length,
                     isLockdown = this.isLockdown,
                     lockdownAbidanceThreshold = this.lockdownAbidance,
+                    hospitalizationAbidance = this.hospitalizationAbidance,
+                    selfQuarantineAbidance = this.selfQuarantineAbidance,
                     evacuationStaggerMax = this.evacuationStaggerMax,
                     shiftGracePeriodHours = this.shiftGracePeriodHours,
                     isSocialDistancing = this.isSocialDistancingToggle,
@@ -1003,8 +1018,8 @@ public class SimulationManager : MonoBehaviour
             advancedBox.Add(CreateSliderRow("Natural Immunity Efficacy:", 0f, 1f, naturalImmunityEfficacy, out natImmSlider, val => naturalImmunityEfficacy = val));
             advancedBox.Add(CreateSliderRow("Lockdown Abidance:",         0f, 1f, lockdownAbidance, out lockAbidSlider, val => lockdownAbidance = val));
             
-            advancedBox.Add(CreateSliderRow("Hospitalization Abidance:", 0f, 1f, sickHospitalThreshold, out sickHospSlider, val => sickHospitalThreshold = val));
-            advancedBox.Add(CreateSliderRow("Self-Quarantine Abidance:", 0f, 1f, sickStayHomeThreshold, out sickStaySlider, val => sickStayHomeThreshold = val));
+            advancedBox.Add(CreateSliderRow("Hospitalization Abidance:", 0f, 1f, hospitalizationAbidance, out sickHospSlider, val => hospitalizationAbidance = val));
+            advancedBox.Add(CreateSliderRow("Self-Quarantine Abidance:", 0f, 1f, selfQuarantineAbidance, out sickStaySlider, val => selfQuarantineAbidance = val));
 
             bedsField = new IntegerField("Beds Per Hospital:") { value = hospitalBedsPerFacility };
             bedsField.AddToClassList("inspector-field");
@@ -1263,6 +1278,7 @@ public class SimulationManager : MonoBehaviour
         SwitchTab(true);
         CreateBuildingPopup(root);
         CreateDocumentationPopup(root);
+        CreateYearEndPopup(root);
     }
 
     void StartSimulationFromUI()
@@ -1293,6 +1309,13 @@ public class SimulationManager : MonoBehaviour
         pendingImportData = null;
         ForcePauseUI();
         DisposeArrays();
+
+        // Unlock UI from Year-End state
+        isYearEndReached = false;
+        if (playButton != null) playButton.SetEnabled(true);
+        if (fastButton != null) fastButton.SetEnabled(true);
+        if (headerDayLabel != null) headerDayLabel.style.color = Color.white;
+        if (yearEndOverlay != null) yearEndOverlay.style.display = DisplayStyle.None;
 
         realTime              = 0f;
         epicAccumulator       = 0f;
@@ -2727,6 +2750,115 @@ public class SimulationManager : MonoBehaviour
 
         sv.Add(titleLabel);
         sv.Add(bodyLabel);
+    }
+    
+    private void TriggerYearEndState()
+    {
+        if (isYearEndReached) return;
+        isYearEndReached = true;
+
+        // 1. Auto-Pause & Lockout
+        ForcePauseUI();
+        if (playButton != null) playButton.SetEnabled(false);
+        if (fastButton != null) fastButton.SetEnabled(false);
+
+        // 2. Visual Shift
+        if (headerDayLabel != null) 
+        {
+            headerDayLabel.text = "DAY: 365 (MAX LIMIT REACHED)";
+            headerDayLabel.style.color = new Color(1f, 0.8f, 0.2f, 1f); // Golden Yellow
+        }
+        if (headerStatusLabel != null)
+        {
+            headerStatusLabel.text = "STATUS: SIMULATION COMPLETE";
+            headerStatusLabel.style.color = new Color(0.2f, 0.8f, 0.2f, 1f); // Green
+        }
+
+        // 3. Populate and Show Popup
+        if (yearEndOverlay != null && yearEndStatsLabel != null)
+        {
+            int dead = 0, recovered = 0, vaccinated = 0;
+            for (int i = 0; i < agents.Length; i++)
+            {
+                if (agents[i].healthState == HealthState.Dead) dead++;
+                else if (agents[i].healthState == HealthState.Recovered) recovered++;
+                else if (agents[i].healthState == HealthState.Vaccinated) vaccinated++;
+            }
+            float survivalRate = 100f * (1f - ((float)dead / populationSize));
+
+            yearEndStatsLabel.text = 
+                $"<b>Total Population:</b> {populationSize}\n" +
+                $"<b>Total Fatalities:</b> {dead}\n" +
+                $"<b>Survival Rate:</b> {survivalRate:F2}%\n\n" +
+                $"<b>Natural Recoveries:</b> {recovered}\n" +
+                $"<b>Vaccinations Administered:</b> {vaccinated}";
+
+            yearEndOverlay.style.display = DisplayStyle.Flex;
+        }
+    }
+
+    private void CreateYearEndPopup(VisualElement root)
+    {
+        var gameView = root.Q<VisualElement>("GameViewArea");
+        var targetRoot = gameView != null ? gameView : root;
+
+        yearEndOverlay = new VisualElement();
+        yearEndOverlay.style.position = Position.Absolute;
+        yearEndOverlay.style.top = 0; yearEndOverlay.style.bottom = 0;
+        yearEndOverlay.style.left = 0; yearEndOverlay.style.right = 0;
+        yearEndOverlay.style.backgroundColor = new Color(0f, 0f, 0f, 0.85f);
+        yearEndOverlay.style.display = DisplayStyle.None;
+        yearEndOverlay.style.alignItems = Align.Center;
+        yearEndOverlay.style.justifyContent = Justify.Center;
+
+        var popupWindow = new VisualElement();
+        popupWindow.style.width = 400;
+        popupWindow.style.backgroundColor = new Color(0.12f, 0.12f, 0.12f, 1f);
+        popupWindow.style.borderTopColor = new Color(0.4f, 0.4f, 0.4f);
+        popupWindow.style.borderTopWidth = 1; popupWindow.style.borderBottomWidth = 1;
+        popupWindow.style.borderLeftWidth = 1; popupWindow.style.borderRightWidth = 1;
+        popupWindow.style.borderTopLeftRadius = 8; popupWindow.style.borderTopRightRadius = 8;
+        popupWindow.style.borderBottomLeftRadius = 8; popupWindow.style.borderBottomRightRadius = 8;
+        popupWindow.style.paddingTop = 20; popupWindow.style.paddingBottom = 20;
+        popupWindow.style.paddingLeft = 25; popupWindow.style.paddingRight = 25;
+        popupWindow.style.alignItems = Align.Center;
+
+        var titleLabel = new Label("YEAR 1 COMPLETE") { style = { color = new Color(1f, 0.8f, 0.2f, 1f), fontSize = 18, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 10 } };
+        
+        var descLabel = new Label("Maximum simulation duration reached (365 Days). The timeline is now locked so you can safely review your data or export the results.") { style = { color = Color.white, fontSize = 12, whiteSpace = WhiteSpace.Normal, unityTextAlign = TextAnchor.MiddleCenter, marginBottom = 15 } };
+        
+        yearEndStatsLabel = new Label() { enableRichText = true, style = { color = new Color(0.85f, 0.85f, 0.85f, 1f), fontSize = 13, marginBottom = 20, unityTextAlign = TextAnchor.MiddleCenter } };
+
+        var btnRow = new VisualElement { style = { flexDirection = FlexDirection.Row, justifyContent = Justify.Center, width = Length.Percent(100) } };
+
+        var reviewBtn = new Button { text = "REVIEW DATA" };
+        reviewBtn.AddToClassList("action-button");
+        reviewBtn.style.paddingLeft = 15; reviewBtn.style.paddingRight = 15; reviewBtn.style.height = 36; reviewBtn.style.marginRight = 10;
+        reviewBtn.clicked += () => yearEndOverlay.style.display = DisplayStyle.None;
+
+        var exportResetBtn = new Button { text = "EXPORT & RESET" };
+        exportResetBtn.AddToClassList("action-button");
+        exportResetBtn.style.paddingLeft = 15; exportResetBtn.style.paddingRight = 15; exportResetBtn.style.height = 36;
+        exportResetBtn.style.backgroundColor = new Color(0.8f, 0.3f, 0.3f, 1f); // Reddish color to indicate a reset
+        
+        // When clicked, it hides the popup, triggers the Export flow, and queues a reset.
+        exportResetBtn.clicked += () => 
+        { 
+            yearEndOverlay.style.display = DisplayStyle.None; 
+            PromptSaveFile(); 
+            ResetSimulation(); 
+        };
+
+        btnRow.Add(reviewBtn);
+        btnRow.Add(exportResetBtn);
+
+        popupWindow.Add(titleLabel);
+        popupWindow.Add(descLabel);
+        popupWindow.Add(yearEndStatsLabel);
+        popupWindow.Add(btnRow);
+
+        yearEndOverlay.Add(popupWindow);
+        targetRoot.Add(yearEndOverlay);
     }
 
 #if UNITY_EDITOR

@@ -77,19 +77,15 @@ public struct ScheduleUpdateJob : IJobParallelFor
             agent.commutingStartTime = currentHour;
             agents[i] = agent; return;
         }
-
-        // ---> BUG FIX: The Lockdown Override Safety Net <---
-        // Only force them to go home if they are NOT already at home and NOT currently walking home.
+        
         if (forceHome && !wantsHospital && !agent.isSeekingVaccine && agent.scheduleState != AgentScheduleState.Returning && agent.scheduleState != AgentScheduleState.Home)
         {
             SetReturningHome(ref agent, i);
             agents[i] = agent; return;
         }
-
-        // --- THE CASCADING SCHEDULE (NORMAL ROUTINE) ---
+        
         if (!forceHome && !wantsHospital && !agent.isSeekingVaccine)
         {
-            // 1. WAKE UP -> START SHIFT OR ERRAND
             if (IsTimeBetween(currentHour, agent.workStartHour, agent.workStartHour + shiftGracePeriodHours) && agent.scheduleState == AgentScheduleState.Home)
             {
                 if (agent.isWorker)
@@ -111,25 +107,21 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 agent.personalOffset = GetPersonalOffset(i, agent.complianceLevel); 
                 agent.commutingStartTime = currentHour;
             }
-
-            // 2. SHIFT ENDS -> LEISURE TIME (Wander Zones)
+            
             if (IsTimeBetween(currentHour, agent.workEndHour, agent.workEndHour + shiftGracePeriodHours) 
                 && agent.scheduleState != AgentScheduleState.Leisure 
                 && agent.scheduleState != AgentScheduleState.Returning)
             {
-                // The "Flying Dutchman" Exhaustion Check
                 bool isExhaustedWorker = agent.isWorker && !agent.isInsideBuilding;
                 bool isExhaustedNonWorker = !agent.isWorker && agent.hasDestinationWaypoint;
 
                 if (isExhaustedWorker || isExhaustedNonWorker)
                 {
-                    // Exhausted: Spent shift walking. Zero out leisure, go straight home.
                     agent.leisureDuration = 0f;
                     SetReturningHome(ref agent, i);
                 }
                 else
                 {
-                    // Normal Behavior: Start Wander Zone Leisure
                     agent.scheduleState = AgentScheduleState.Leisure;
                     var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(i * 8123 + (int)currentHour * 50));
                     agent.commercialID = rng.NextInt(0, commercialNearestWaypoint.Length);
@@ -141,10 +133,9 @@ public struct ScheduleUpdateJob : IJobParallelFor
                     agent.commutingStartTime = currentHour;
                 }
             }
-
-            // 3. LEISURE ENDS -> GO HOME
+            
             float dynamicHomeTime = agent.workEndHour + agent.leisureDuration;
-            if (dynamicHomeTime >= 24f) dynamicHomeTime -= 24f; // Midnight wrap-around logic
+            if (dynamicHomeTime >= 24f) dynamicHomeTime -= 24f;
 
             if (IsTimeBetween(currentHour, dynamicHomeTime, dynamicHomeTime + shiftGracePeriodHours) 
                 && agent.scheduleState != AgentScheduleState.Returning)
@@ -152,11 +143,10 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 SetReturningHome(ref agent, i);
             }
         }
-
-        // --- ARRIVAL / STATE SNAPPING ---
+        
         switch (agent.scheduleState)
         {
-            case AgentScheduleState.Commuting: // For going inside an Office
+            case AgentScheduleState.Commuting:
                 if (ReachedOffsetDestination(agent.position, waypoints[workNearestWaypoint[agent.workID]], agent.personalOffset))
                 {
                     agent.scheduleState = AgentScheduleState.AtWork; 
@@ -167,10 +157,9 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 }
                 break;
 
-            case AgentScheduleState.Leisure: // For Wandering Errand/Leisure Blocks
+            case AgentScheduleState.Leisure:
                 if (agent.hasDestinationWaypoint && ReachedOffsetDestination(agent.position, waypoints[commercialNearestWaypoint[agent.commercialID]], agent.personalOffset))
                 {
-                    // Arrived at destination. Drop target so Wander Engine takes over!
                     agent.hasDestinationWaypoint = false; 
                     agent.isInsideBuilding = false; 
                     agent.hasMovementSegment = false; 
@@ -178,7 +167,7 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 }
                 break;
 
-            case AgentScheduleState.AtCommercial: // Strictly for Indoor Vaccines
+            case AgentScheduleState.AtCommercial:
                 if (ReachedOffsetDestination(agent.position, waypoints[commercialNearestWaypoint[agent.vaccineClinicID]], agent.personalOffset))
                 {
                     agent.isInsideBuilding = true; 
@@ -230,17 +219,13 @@ public struct ScheduleUpdateJob : IJobParallelFor
         agent.hasMovementSegment = false; 
         agent.personalOffset = GetPersonalOffset(agentIndex, agent.complianceLevel); 
         
-        // ---> FIX: Staggered Evacuation Timers <---
-        // Gives everyone a slightly offset timer so they don't hit the failsafe on the exact same frame!
         var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(agentIndex * 1234));
         agent.commutingStartTime = currentHour + rng.NextFloat(0f, evacuationStaggerMax); 
     }
-
-    // Helper Math 
     private bool IsTimeBetween(float time, float start, float end)
     {
         if (start <= end) return time >= start && time <= end;
-        return time >= start || time <= end; // Handles midnight wrap-around
+        return time >= start || time <= end;
     }
 
     private float3 GetPersonalOffset(int agentIndex, float complianceLevel) 

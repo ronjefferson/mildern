@@ -3,7 +3,7 @@ Target Population: 50000
 Frames Executed: 1000 per run
 Seed: 7777
 ----------------------------------------------
-RUN 1 FINAL STATE: S:49801 | E:189 | I:0 | R:9 | V:0 | D:1
-RUN 2 FINAL STATE: S:49801 | E:189 | I:0 | R:9 | V:0 | D:1
+RUN 1 FINAL STATE: S:49831 | E:159 | I:0 | R:6 | V:0 | D:4
+RUN 2 FINAL STATE: S:49831 | E:159 | I:0 | R:6 | V:0 | D:4
 ==============================================
 STATUS: PASSED (100% PERFECT TIMELINE MATCH)

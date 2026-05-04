@@ -36,14 +36,10 @@ public class TimeManager : MonoBehaviour
         UpdateSun();
         UpdateAmbientLight();
     }
-
-    // Call with Time.deltaTime every frame
-    // multiplier is applied here so time scales correctly
     public void AdvanceTime(float realDeltaSeconds)
     {
         if (timeMultiplier == 0f) return;
-
-        // Apply multiplier here — this is the only place time advances
+        
         currentHour += (realDeltaSeconds * timeMultiplier * simMinutesPerRealSecond) / 60f;
 
         if (currentHour >= 24f)

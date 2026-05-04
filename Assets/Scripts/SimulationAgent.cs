@@ -52,11 +52,10 @@ public struct SimulationAgent
     public int frustrationCounter;
     public float highWatermarkDistance;
     
-    // --- Demographics & Cascading Schedule ---
     public bool isWorker;
-    public float workStartHour;   // Acts as "Errand Start" for Non-Workers
-    public float workEndHour;     // Acts as "Errand End" for Non-Workers
-    public float leisureDuration; // How long they stay out wandering after their shift
+    public float workStartHour;
+    public float workEndHour;
+    public float leisureDuration;
     
     public float complianceLevel;
     public float commutingStartTime;

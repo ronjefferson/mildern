@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.UIElements; // --- NEW: Required for the solid UI check ---
+using UnityEngine.UIElements;
 
 [RequireComponent(typeof(Camera))]
 public class CameraController : MonoBehaviour
@@ -62,10 +62,7 @@ public class CameraController : MonoBehaviour
     void LateUpdate() 
     {
         if (target == null || Mouse.current == null) return;
-
-        // ==========================================
-        // FIX: PRECISE SOLID UI HOVER CHECK
-        // ==========================================
+        
         UIDocument uiDoc = FindObjectOfType<UIDocument>();
         if (uiDoc != null && uiDoc.rootVisualElement != null && uiDoc.rootVisualElement.panel != null)
         {
@@ -76,7 +73,6 @@ public class CameraController : MonoBehaviour
             bool overSolidUI = false;
             VisualElement current = picked;
             
-            // Travel up the UI tree. If we hit ANY element with a visible background color, we are over the UI.
             while (current != null)
             {
                 if (current.resolvedStyle.backgroundColor.a > 0.01f)
@@ -87,10 +83,8 @@ public class CameraController : MonoBehaviour
                 current = current.parent;
             }
             
-            // Abort all camera input if the mouse is resting on a solid UI panel!
             if (overSolidUI) return; 
         }
-        // ==========================================
 
         Vector2 mouseDelta = Mouse.current.delta.ReadValue();
 

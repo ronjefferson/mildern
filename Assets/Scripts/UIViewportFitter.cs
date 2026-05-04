@@ -20,12 +20,10 @@ public class UIViewportFitter : MonoBehaviour
 
         VisualElement viewArea = uiDocument.rootVisualElement.Q<VisualElement>(viewAreaName);
         if (viewArea == null) return;
-
-        // Get the absolute screen boundaries to map exactly to the monitor
+        
         Rect uiRect = viewArea.worldBound;
         Rect rootRect = uiDocument.rootVisualElement.worldBound;
-
-        // Prevent math errors on frame 1
+        
         if (uiRect.width == 0 || rootRect.width == 0 || rootRect.height == 0) return;
 
         float normalizedX = uiRect.x / rootRect.width;

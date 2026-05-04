@@ -38,8 +38,18 @@ public class DeterminismController : MonoBehaviour
         // Lock the random dice rolls
         UnityEngine.Random.InitState(7777); 
 
+        // 1. Lock the baseline population
         SimulationManager.Instance.populationSize = testPopulation;
         SimulationManager.Instance.initialInfected = 10;
+        
+        // 2. Lock the behavior parameters to guarantee Run 1 and Run 2 are identical
+        SimulationManager.Instance.hospitalizationAbidance = 0.5f;
+        SimulationManager.Instance.selfQuarantineAbidance = 0.2f;
+        SimulationManager.Instance.speedVariance = 0.25f;
+        SimulationManager.Instance.shiftGracePeriodHours = 1.0f;
+        SimulationManager.Instance.evacuationStaggerMax = 0.75f;
+
+        // 3. Launch the engine
         SimulationManager.Instance.Initialize();
 
         if (TimeManager.Instance != null) TimeManager.Instance.timeMultiplier = 10f; 
