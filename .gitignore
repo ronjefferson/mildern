@@ -25,3 +25,7 @@ Thumbs.db
 *.pdb
 *.opendb
 *.VC.db
+
+.idea/
+.vscode/
+.UIElementsSchema/

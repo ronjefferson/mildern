@@ -1,4 +1,6 @@
-# Agent-Based Epidemiological Simulator
+# Mildern - An Interactive 3D Epidemic Simulation Tool
+
+![Mildern Preview](./images/mildern.png)
 
 An advanced, highly scalable agent-based epidemiological simulator built in Unity. 
 
