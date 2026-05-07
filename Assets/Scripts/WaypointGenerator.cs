@@ -36,8 +36,7 @@ public class WaypointGenerator : MonoBehaviour
                   $"{triangulation.indices.Length / 3} triangles");
 
         List<Vector3> candidates = new List<Vector3>();
-
-        // Sample points uniformly across every NavMesh triangle
+        
         for (int i = 0; i < triangulation.indices.Length; i += 3)
         {
             Vector3 a = triangulation.vertices[triangulation.indices[i]];
@@ -47,17 +46,13 @@ public class WaypointGenerator : MonoBehaviour
             a.y = 0f; b.y = 0f; c.y = 0f;
 
             float area = TriangleArea(a, b, c);
-
-            // Skip tiny triangles — these are gaps between buildings
-            // too small for agents to walk through
+            
             if (area < minTriangleArea) continue;
-
-            // How many points to sample based on triangle area and spacing
+            
             int sampleCount = Mathf.Max(1, Mathf.RoundToInt(area / (waypointSpacing * waypointSpacing)));
 
             for (int s = 0; s < sampleCount; s++)
             {
-                // Random barycentric coordinates
                 float r1 = Random.value;
                 float r2 = Random.value;
                 if (r1 + r2 > 1f) { r1 = 1f - r1; r2 = 1f - r2; }
@@ -70,14 +65,11 @@ public class WaypointGenerator : MonoBehaviour
         }
 
         Debug.Log($"Raw candidates from NavMesh: {candidates.Count}");
-
-        // Filter by min distance using spatial grid for speed
+        
         List<Vector3> filtered = FilterByMinDistance(candidates, minDistance);
 
         Debug.Log($"After min distance filter: {filtered.Count} waypoints");
-
-        // Build neighbor graph — no line-of-sight check needed
-        // NavMesh already guarantees these points are on walkable surface
+        
         int count = filtered.Count;
         List<int>[] neighbors = new List<int>[count];
         for (int i = 0; i < count; i++)
@@ -114,14 +106,12 @@ public class WaypointGenerator : MonoBehaviour
         }
 
         EditorUtility.ClearProgressBar();
-
-        // Keep only largest connected cluster
+        
         List<int> mainCluster = FindLargestCluster(count, neighbors);
 
         Debug.Log($"Main cluster: {mainCluster.Count} / {count} waypoints " +
                   $"({(float)mainCluster.Count / count * 100f:0}% connected)");
-
-        // Remap to main cluster only
+        
         int[] remap = new int[count];
         for (int i = 0; i < count; i++) remap[i] = -1;
         for (int i = 0; i < mainCluster.Count; i++) remap[mainCluster[i]] = i;
@@ -142,8 +132,7 @@ public class WaypointGenerator : MonoBehaviour
                     finalNeighbors[newIdx].Add(newNeighbor);
             }
         }
-
-        // Flatten
+        
         List<int> neighborDataList = new List<int>();
         int[] neighborStart = new int[finalWaypoints.Count];
         int[] neighborCount = new int[finalWaypoints.Count];
@@ -168,8 +157,7 @@ public class WaypointGenerator : MonoBehaviour
         Debug.Log($"Done! {finalWaypoints.Count} waypoints, " +
                   $"{edgesCreated} edges, avg {avgNeighbors:0.0} neighbors/node");
     }
-
-    // Fast min distance filter using spatial grid
+    
     List<Vector3> FilterByMinDistance(List<Vector3> candidates, float minDist)
     {
         float cellSize = minDist;
@@ -183,8 +171,7 @@ public class WaypointGenerator : MonoBehaviour
             int cz = Mathf.FloorToInt(c.z / cellSize);
 
             bool tooClose = false;
-
-            // Check 3x3 neighborhood of cells
+            
             for (int dx = -1; dx <= 1 && !tooClose; dx++)
             {
                 for (int dz = -1; dz <= 1 && !tooClose; dz++)

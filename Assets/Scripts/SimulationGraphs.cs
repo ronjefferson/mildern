@@ -34,7 +34,7 @@ public class EpidemicLineGraph : VisualElement
         style.marginBottom = 10;
         style.flexDirection = FlexDirection.Column;
 
-        var title = new Label("SEIR CURVE")
+        var title = new Label("SEIRD CURVE")
         {
             style = { color = Color.white, fontSize = 11, unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 8 }
         };

@@ -112,42 +112,50 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 && agent.scheduleState != AgentScheduleState.Leisure 
                 && agent.scheduleState != AgentScheduleState.Returning)
             {
-                bool isExhaustedWorker = agent.isWorker && !agent.isInsideBuilding;
-                bool isExhaustedNonWorker = !agent.isWorker && agent.hasDestinationWaypoint;
-
-                if (isExhaustedWorker || isExhaustedNonWorker)
+                if (agent.isWorker)
                 {
-                    agent.leisureDuration = 0f;
                     SetReturningHome(ref agent, i);
                 }
                 else
                 {
-                    agent.scheduleState = AgentScheduleState.Leisure;
-                    var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(i * 8123 + (int)currentHour * 50));
-                    agent.commercialID = rng.NextInt(0, commercialNearestWaypoint.Length);
-                    agent.destinationWaypointIndex = commercialNearestWaypoint[agent.commercialID];
-                    agent.hasDestinationWaypoint = true;
-                    agent.hasMovementSegment = false;
-                    agent.isInsideBuilding = false;
-                    agent.personalOffset = GetPersonalOffset(i, agent.complianceLevel);
-                    agent.commutingStartTime = currentHour;
+                    bool isExhaustedNonWorker = agent.hasDestinationWaypoint;
+                    if (isExhaustedNonWorker)
+                    {
+                        agent.leisureDuration = 0f;
+                        SetReturningHome(ref agent, i);
+                    }
+                    else
+                    {
+                        agent.scheduleState = AgentScheduleState.Leisure;
+                        var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(i * 8123 + (int)currentHour * 50));
+                        agent.commercialID = rng.NextInt(0, commercialNearestWaypoint.Length);
+                        agent.destinationWaypointIndex = commercialNearestWaypoint[agent.commercialID];
+                        agent.hasDestinationWaypoint = true;
+                        agent.hasMovementSegment = false;
+                        agent.isInsideBuilding = false;
+                        agent.personalOffset = GetPersonalOffset(i, agent.complianceLevel);
+                        agent.commutingStartTime = currentHour;
+                    }
                 }
             }
             
-            float dynamicHomeTime = agent.workEndHour + agent.leisureDuration;
-            if (dynamicHomeTime >= 24f) dynamicHomeTime -= 24f;
-
-            if (IsTimeBetween(currentHour, dynamicHomeTime, dynamicHomeTime + shiftGracePeriodHours) 
-                && agent.scheduleState != AgentScheduleState.Returning)
+            if (!agent.isWorker)
             {
-                SetReturningHome(ref agent, i);
+                float dynamicHomeTime = agent.workEndHour + agent.leisureDuration;
+                if (dynamicHomeTime >= 24f) dynamicHomeTime -= 24f;
+
+                if (IsTimeBetween(currentHour, dynamicHomeTime, dynamicHomeTime + shiftGracePeriodHours) 
+                    && agent.scheduleState != AgentScheduleState.Returning)
+                {
+                    SetReturningHome(ref agent, i);
+                }
             }
         }
         
         switch (agent.scheduleState)
         {
             case AgentScheduleState.Commuting:
-                if (ReachedOffsetDestination(agent.position, waypoints[workNearestWaypoint[agent.workID]], agent.personalOffset))
+                if (ReachedOffsetDestination(agent.position, waypoints[workNearestWaypoint[agent.workID]], agent.personalOffset, agent.currentWaypointIndex, agent.destinationWaypointIndex))
                 {
                     agent.scheduleState = AgentScheduleState.AtWork; 
                     agent.isInsideBuilding = true;
@@ -158,7 +166,7 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 break;
 
             case AgentScheduleState.Leisure:
-                if (agent.hasDestinationWaypoint && ReachedOffsetDestination(agent.position, waypoints[commercialNearestWaypoint[agent.commercialID]], agent.personalOffset))
+                if (agent.hasDestinationWaypoint && ReachedOffsetDestination(agent.position, waypoints[commercialNearestWaypoint[agent.commercialID]], agent.personalOffset, agent.currentWaypointIndex, agent.destinationWaypointIndex))
                 {
                     agent.hasDestinationWaypoint = false; 
                     agent.isInsideBuilding = false; 
@@ -168,7 +176,7 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 break;
 
             case AgentScheduleState.AtCommercial:
-                if (ReachedOffsetDestination(agent.position, waypoints[commercialNearestWaypoint[agent.vaccineClinicID]], agent.personalOffset))
+                if (ReachedOffsetDestination(agent.position, waypoints[commercialNearestWaypoint[agent.vaccineClinicID]], agent.personalOffset, agent.currentWaypointIndex, agent.destinationWaypointIndex))
                 {
                     agent.isInsideBuilding = true; 
                     agent.hasMovementSegment = false; 
@@ -178,7 +186,7 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 break;
 
             case AgentScheduleState.AtHospital:
-                if (ReachedOffsetDestination(agent.position, waypoints[hospitalNearestWaypoint[agent.healthcareID]], agent.personalOffset))
+                if (ReachedOffsetDestination(agent.position, waypoints[hospitalNearestWaypoint[agent.healthcareID]], agent.personalOffset, agent.currentWaypointIndex, agent.destinationWaypointIndex))
                 {
                     agent.isInsideBuilding = true; 
                     agent.isAtHospital = true; 
@@ -194,7 +202,7 @@ public struct ScheduleUpdateJob : IJobParallelFor
                 break;
 
             case AgentScheduleState.Returning:
-                if (ReachedOffsetDestination(agent.position, waypoints[homeNearestWaypoint[agent.homeID]], agent.personalOffset))
+                if (ReachedOffsetDestination(agent.position, waypoints[homeNearestWaypoint[agent.homeID]], agent.personalOffset, agent.currentWaypointIndex, agent.destinationWaypointIndex))
                 {
                     agent.scheduleState = AgentScheduleState.Home; 
                     agent.isInsideBuilding = true;
@@ -218,12 +226,13 @@ public struct ScheduleUpdateJob : IJobParallelFor
         agent.hasDestinationWaypoint = true;
         agent.hasMovementSegment = false; 
         agent.personalOffset = GetPersonalOffset(agentIndex, agent.complianceLevel); 
-        
-        var rng = Unity.Mathematics.Random.CreateFromIndex((uint)(agentIndex * 1234));
-        agent.commutingStartTime = currentHour + rng.NextFloat(0f, evacuationStaggerMax); 
+        agent.commutingStartTime = currentHour;
     }
+
     private bool IsTimeBetween(float time, float start, float end)
     {
+        if (end >= 24f) end -= 24f;
+
         if (start <= end) return time >= start && time <= end;
         return time >= start || time <= end;
     }
@@ -240,8 +249,10 @@ public struct ScheduleUpdateJob : IJobParallelFor
         return new float3(rng.NextFloat(-range, range), 0f, rng.NextFloat(-range, range)); 
     }
 
-    private bool ReachedOffsetDestination(float3 agentPos, float3 waypointPos, float3 offset) 
+    private bool ReachedOffsetDestination(float3 agentPos, float3 waypointPos, float3 offset, int currentWaypointIdx, int targetWaypointIdx) 
     { 
+        if (currentWaypointIdx == targetWaypointIdx) return true;
+        
         float3 offsetDest = waypointPos + new float3(offset.x, 0f, offset.z); 
         return math.distance(new float3(agentPos.x, 0f, agentPos.z), new float3(offsetDest.x, 0f, offsetDest.z)) < waypointReachDistance * 3f; 
     }

@@ -27,7 +27,11 @@ public struct WaypointAssignJob : IJobParallelFor
         if (agent.hasDestinationWaypoint && agent.commutingStartTime > -100f)
         {
             float commuteDuration = currentHour - agent.commutingStartTime;
-            if (commuteDuration < 0f) commuteDuration += 24f; 
+            
+            if (commuteDuration < -12f) 
+                commuteDuration += 24f;
+            else if (commuteDuration < 0f) 
+                commuteDuration = 0f;
             
             if (commuteDuration > stuckTimeoutSimHours)
             {
@@ -36,7 +40,7 @@ public struct WaypointAssignJob : IJobParallelFor
                 agent.targetPosition = agent.position;
                 agent.moveEndPosition = agent.position;
                 agent.hasMovementSegment = false;
-                
+        
                 agent.isEscaping = false;
                 agent.frustrationCounter = 0;
                 agent.highWatermarkDistance = 0f;
@@ -54,13 +58,13 @@ public struct WaypointAssignJob : IJobParallelFor
                         agent.scheduleState = AgentScheduleState.Home;
                     }
                 }
-                
+        
                 agent.commutingStartTime = -9999f;
                 agents[i] = agent;
                 return; 
             }
         }
-
+        
         int maxSteps = 100; 
         int steps = 0;
 
@@ -166,7 +170,7 @@ public struct WaypointAssignJob : IJobParallelFor
                     for (int n = 0; n < count; n++)
                     {
                         int candidateIdx = neighborData[start + n];
-                        
+    
                         float penalty = 0f;
                         if      (candidateIdx == agent.prev1) penalty = 80000000f; 
                         else if (candidateIdx == agent.prev2) penalty = 70000000f;
@@ -181,9 +185,14 @@ public struct WaypointAssignJob : IJobParallelFor
                             new float3(waypoints[candidateIdx].x, 0f, waypoints[candidateIdx].z),
                             new float3(dest.x, 0f, dest.z)
                         );
-                        
+    
                         float nodeScore = agent.isEscaping ? (-distSq + penalty) : (distSq + penalty);
                         
+                        if (candidateIdx == agent.destinationWaypointIndex)
+                        {
+                            nodeScore = -1000000000f; 
+                        }
+
                         if (nodeScore < score1) { score3 = score2; best3 = best2; score2 = score1; best2 = best1; score1 = nodeScore; best1 = candidateIdx; }
                         else if (nodeScore < score2) { score3 = score2; best3 = best2; score2 = nodeScore; best2 = candidateIdx; }
                         else if (nodeScore < score3) { score3 = nodeScore; best3 = candidateIdx; }
@@ -274,7 +283,7 @@ public struct WaypointAssignJob : IJobParallelFor
             agent.arrivalTime = startTime + 0.1f; 
             return;
         }
-
+        
         float realTravelTime = distance / agent.speed;
         agent.moveStartPosition = agent.position;
         agent.moveEndPosition = agent.targetPosition;

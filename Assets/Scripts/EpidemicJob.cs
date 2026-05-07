@@ -41,6 +41,8 @@ public struct EpidemicJob : IJobParallelFor
     public float sdAbidance, sdRadiusMultiplier, sdTransmissionMultiplier, sdContactCapMultiplier;
 
     public float hospitalRecoveryMultiplier, hospitalMortalityModifier;
+    
+    public int hospitalBedsPerFacility;
 
     public float homeTransmissionMultiplier; public int homeContactCap;
     public float workplaceTransmissionMultiplier; public int workplaceContactCap;
@@ -78,8 +80,25 @@ public struct EpidemicJob : IJobParallelFor
             float currentMortalityChance = mortalityRate;
             
             if (agent.isAtHospital) { 
-                currentRecoverySpeed = hospitalRecoveryMultiplier; 
-                currentMortalityChance = mortalityRate * hospitalMortalityModifier; 
+                int buildingKey = 4000000 + agent.healthcareID;
+                int queuePosition = 0;
+
+                foreach (int occupantIndex in indoorMap.GetValuesForKey(buildingKey)) {
+                    if (occupantIndex == i) continue;
+                    
+                    SimulationAgent occupant = agentsIn[occupantIndex];
+                    if (occupant.isAtHospital) {
+                        if (occupant.recoveryTimer < agent.recoveryTimer || 
+                           (occupant.recoveryTimer == agent.recoveryTimer && occupantIndex < i)) {
+                            queuePosition++; 
+                        }
+                    }
+                }
+
+                if (queuePosition < hospitalBedsPerFacility) {
+                    currentRecoverySpeed = hospitalRecoveryMultiplier; 
+                    currentMortalityChance = mortalityRate * hospitalMortalityModifier; 
+                }
             }
 
             agent.recoveryTimer -= (deltaTime * currentRecoverySpeed);
@@ -146,8 +165,7 @@ public struct EpidemicJob : IJobParallelFor
                 if (buildingKey != -1) {
                     int contactsProcessed = 0;
                     int effectiveIndoorCap = baseIndoorCap;
-
-                    // Reduce the amount of people interacted with if compliant
+                    
                     if (isAgentCompliant && baseIndoorCap > 0) {
                         effectiveIndoorCap = (int)math.max(1, baseIndoorCap * sdContactCapMultiplier);
                     }

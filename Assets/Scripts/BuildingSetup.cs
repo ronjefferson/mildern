@@ -7,13 +7,11 @@ public class BuildingSetup : MonoBehaviour
     [ContextMenu("Setup Building Navmesh Modifiers")]
     void SetupModifiers()
     {
-        // Find all buildings in the scene
         GameObject[] allObjects = FindObjectsOfType<GameObject>();
         int count = 0;
 
         foreach (GameObject obj in allObjects)
         {
-            // Target only building objects
             if (obj.name.Contains("building") || obj.name.Contains("Building"))
             {
                 NavMeshModifier modifier = obj.GetComponent<NavMeshModifier>();
@@ -72,8 +70,7 @@ public class BuildingSetup : MonoBehaviour
         {
             Renderer r = b.GetComponent<Renderer>();
             if (r == null) continue;
-
-            // Create a unique material instance for each building
+            
             Material uniqueMat = new Material(r.sharedMaterial);
             uniqueMat.name = $"Building_Mat_{count}";
             r.sharedMaterial = uniqueMat;

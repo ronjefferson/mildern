@@ -278,12 +278,11 @@ public class SimulationManager : MonoBehaviour
                     TimeManager.Instance.AdvanceTime(dynamicTick / multiplier);
 
                 int currentDay = Mathf.FloorToInt(realTime / realSecondsPerInGameDay) + 1;
-
-                // ---> THE 365-DAY HARDCAP <---
+                
                 if (currentDay > 365)
                 {
                     TriggerYearEndState();
-                    break; // Instantly kicks out of the calculation loop
+                    break;
                 }
 
                 if (currentDay > furthestRecordedDay && !isExploringPast)
@@ -373,7 +372,7 @@ public class SimulationManager : MonoBehaviour
                     hospitalPositions = nativeHospitalPositions,
                     commercialPositions = nativeCommercialPositions,
                     waypoints = waypoints,
-                    stuckTimeoutSimHours = stuckTimeoutSimHours,
+                    stuckTimeoutSimHours = 2f,
                     waypointReachDistance = waypointReachDistance,
                     destinationOffsetRange = destinationOffsetRange,
                     groundY = groundY
@@ -526,9 +525,11 @@ public class SimulationManager : MonoBehaviour
                     for (int k = 0; k < distanceChecksTracker.Length; k++)
                         currentTickChecks += distanceChecksTracker[k];
                     TotalDistanceChecksThisTick = currentTickChecks;
-
+                    
                     int alive = 0, dead = 0, infected = 0, recovered = 0,
-                        susceptible = 0, exposed = 0, vaccinated = 0, hospitalized = 0;
+                        susceptible = 0, exposed = 0, vaccinated = 0;
+                    
+                    int[] hospitalHeadcounts = new int[hospitalPositions.Length];
 
                     for (int i = 0; i < agents.Length; i++)
                     {
@@ -562,7 +563,15 @@ public class SimulationManager : MonoBehaviour
                         }
 
                         if (ag.scheduleState == AgentScheduleState.AtHospital)
-                            hospitalized++;
+                        {
+                            hospitalHeadcounts[ag.healthcareID]++;
+                        }
+                    }
+                    
+                    int actualBedsOccupied = 0;
+                    for (int h = 0; h < hospitalHeadcounts.Length; h++)
+                    {
+                        actualBedsOccupied += math.min(hospitalHeadcounts[h], hospitalBedsPerFacility);
                     }
 
                     int remainingVaccines = 0;
@@ -593,7 +602,7 @@ public class SimulationManager : MonoBehaviour
                     if (simulationStats != null)
                     {
                         int totalBeds = hospitalPositions != null ? hospitalPositions.Length * hospitalBedsPerFacility : 0;
-                        simulationStats.UpdateData(alive, dead, susceptible, exposed, infected, recovered, vaccinated, hospitalized, totalBeds, remainingVaccines, totalVaccinesAvailable);
+                        simulationStats.UpdateData(alive, dead, susceptible, exposed, infected, recovered, vaccinated, actualBedsOccupied, totalBeds, remainingVaccines, totalVaccinesAvailable);
                     }
                 }
             }
@@ -781,8 +790,13 @@ public class SimulationManager : MonoBehaviour
                 float compLvl = Random.Range(0f, 1f);
 
                 bool agentIsWorker = Random.value > nonWorkerRatio;
-                float rolledLeisure = Random.Range(0.5f, maxLeisureHours);
-                
+
+                float rolledLeisure = 0f;
+                if (!agentIsWorker)
+                {
+                    rolledLeisure = Random.Range(0.5f, maxLeisureHours);
+                }
+
                 float assignedStart, assignedEnd;
 
                 if (agentIsWorker)
@@ -805,6 +819,9 @@ public class SimulationManager : MonoBehaviour
                     targetPosition           = waypoints[homeNearestWaypoint[hIdx]],
                     personalOffset           = GetPersonalOffset(i, compLvl),
                     healthState              = assignedState,
+                    
+                    recoveryTimer            = assignedState == HealthState.Infected ? recoveryTime * realSecondsPerInGameDay : 0f,
+                    
                     scheduleState            = AgentScheduleState.Home,
                     immunityTimer            = 0f,
                     isSeekingVaccine         = false,
@@ -812,7 +829,7 @@ public class SimulationManager : MonoBehaviour
                     isVaccineClinicCommercial = false,
                     vaccineWaitTimer         = 0f,
                     healthcareID             = i % hospitalPositions.Length,
-                    speed                    = Random.Range(agentSpeed * (1f - speedVariance), agentSpeed * (1f + speedVariance)),
+                    speed                    = agentSpeed,
                     homeID                   = hIdx,
                     
                     isWorker                 = agentIsWorker,
@@ -1310,7 +1327,6 @@ public class SimulationManager : MonoBehaviour
         ForcePauseUI();
         DisposeArrays();
 
-        // Unlock UI from Year-End state
         isYearEndReached = false;
         if (playButton != null) playButton.SetEnabled(true);
         if (fastButton != null) fastButton.SetEnabled(true);
@@ -2756,25 +2772,22 @@ public class SimulationManager : MonoBehaviour
     {
         if (isYearEndReached) return;
         isYearEndReached = true;
-
-        // 1. Auto-Pause & Lockout
+        
         ForcePauseUI();
         if (playButton != null) playButton.SetEnabled(false);
         if (fastButton != null) fastButton.SetEnabled(false);
 
-        // 2. Visual Shift
         if (headerDayLabel != null) 
         {
             headerDayLabel.text = "DAY: 365 (MAX LIMIT REACHED)";
-            headerDayLabel.style.color = new Color(1f, 0.8f, 0.2f, 1f); // Golden Yellow
+            headerDayLabel.style.color = new Color(1f, 0.8f, 0.2f, 1f);
         }
         if (headerStatusLabel != null)
         {
             headerStatusLabel.text = "STATUS: SIMULATION COMPLETE";
-            headerStatusLabel.style.color = new Color(0.2f, 0.8f, 0.2f, 1f); // Green
+            headerStatusLabel.style.color = new Color(0.2f, 0.8f, 0.2f, 1f);
         }
 
-        // 3. Populate and Show Popup
         if (yearEndOverlay != null && yearEndStatsLabel != null)
         {
             int dead = 0, recovered = 0, vaccinated = 0;
@@ -2839,9 +2852,8 @@ public class SimulationManager : MonoBehaviour
         var exportResetBtn = new Button { text = "EXPORT & RESET" };
         exportResetBtn.AddToClassList("action-button");
         exportResetBtn.style.paddingLeft = 15; exportResetBtn.style.paddingRight = 15; exportResetBtn.style.height = 36;
-        exportResetBtn.style.backgroundColor = new Color(0.8f, 0.3f, 0.3f, 1f); // Reddish color to indicate a reset
+        exportResetBtn.style.backgroundColor = new Color(0.8f, 0.3f, 0.3f, 1f);
         
-        // When clicked, it hides the popup, triggers the Export flow, and queues a reset.
         exportResetBtn.clicked += () => 
         { 
             yearEndOverlay.style.display = DisplayStyle.None; 

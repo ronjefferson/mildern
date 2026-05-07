@@ -72,8 +72,7 @@ public class AgentRenderer : MonoBehaviour
                 case HealthState.Vaccinated: vaccinated.Add(matrix); break;
             }
         }
-
-        // Paint the batches to the screen
+        
         DrawBatched(susceptible, susceptibleMaterial);
         DrawBatched(exposed, exposedMaterial);
         DrawBatched(infected, infectedMaterial);
