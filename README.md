@@ -60,7 +60,7 @@ If you want to modify the simulation, tweak the math, or add new features, you w
    ```
 
 2. Open **Unity Hub** and click `Add project from disk`.
-3. Select the cloned repository folder.
+3. Select the folder `mildern`.
 4. Open `SimCore_P.unity` in the `Assets/Scenes` folder.
 5. Press the **Play** button in the Unity Editor to start testing.
 
