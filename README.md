@@ -78,10 +78,6 @@ The UI dashboard provides real-time control over the macro and micro variables o
 *   **No Age Demographics:** The current model uses a flat mortality rate and does not disproportionately affect elderly agents.
 *   **Single-City Model:** The simulation occurs in a closed system. There is no inter-region travel or external importation of cases after Day 0.
 
-## Export & Data
-
-When a scenario reaches its 365-day conclusion (or is manually paused), users can export the simulation state to a `.sim` file. This saves both the parameter configurations and the entire daily timeline history, allowing scenarios to be reloaded and analyzed later.
-
 ---
 
 <!-- MARKDOWN LINKS & IMAGES -->
