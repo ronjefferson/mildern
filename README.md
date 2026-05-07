@@ -43,7 +43,7 @@ If you simply want to run the simulation and test scenarios without installing a
 1. Navigate to the **[Releases](../../releases)** tab on the right side of this repository.
 2. Download the latest `.zip` file for your operating system (Windows/macOS/Linux).
 3. Extract the folder to your computer.
-4. Run the `EpidemicSimulator` executable file to launch the dashboard.
+4. Run the `Mildern.exe` executable file to launch the program.
 
 ### For Developers (Build from Source)
 If you want to modify the simulation, tweak the math, or add new features, you will need to build the project from the source code.
